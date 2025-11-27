@@ -1,0 +1,6 @@
+Django
+django-countries
+django-localeurl
+Pillow
+requests
+django-language-field
