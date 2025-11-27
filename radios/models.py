@@ -11,7 +11,6 @@ BROADCAST_TYPE_CHOICES = [
     ("dab", "Digital Audio Broadcasting"),
 ]
 
-
 class Radio(models.Model):
     name = models.CharField(max_length=180)
     slug = models.SlugField(max_length=220, unique=True)
@@ -45,10 +44,10 @@ class Radio(models.Model):
         return self.name
 
 
-class AudioStream(models.Model):
+class Stream(models.Model):
     radio = models.ForeignKey(Radio, on_delete=models.CASCADE, related_name="streams")
     name = models.CharField(max_length=200)
-    streaming_url = models.URLField()
+    url = models.URLField()
     is_active = models.BooleanField(default=True)
 
     def __str__(self):
@@ -56,9 +55,7 @@ class AudioStream(models.Model):
 
 
 import uuid
-import os
 from django.db import models
-from django.conf import settings
 from django.utils.text import slugify
 
 
@@ -85,7 +82,7 @@ def recording_upload_path(instance, filename):
 
 class Recording(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    stream = models.ForeignKey("AudioStream", on_delete=models.CASCADE, related_name="recordings")
+    stream = models.ForeignKey("Stream", on_delete=models.CASCADE, related_name="recordings")
     start_time = models.DateTimeField()
     end_time = models.DateTimeField()
     file = models.FileField(upload_to=recording_upload_path)
@@ -96,45 +93,3 @@ class Recording(models.Model):
     def __str__(self):
         return f"{self.stream.radio} [{self.start_time} - {self.end_time}]"
 
-
-
-
-
-
-
-
-
-"""
-class StreamEndpoint(models.Model):
-    station = models.ForeignKey(Radio, on_delete=models.CASCADE, related_name="streams")
-    name = models.CharField(max_length=255, blank=True)
-    url = models.URLField(validators=[URLValidator()])
-    is_primary = models.BooleanField(default=False)
-    bitrate = models.PositiveIntegerField(null=True, blank=True, help_text="kbps")
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        unique_together = ("station", "url")
-
-    def __str__(self):
-        return f"{self.station.name} — {self.name or self.url}"
-
-
-class Recording(models.Model):
-    station = models.ForeignKey(Radio, on_delete=models.CASCADE, related_name="recordings")
-    stream = models.ForeignKey(StreamEndpoint, on_delete=models.SET_NULL, null=True, blank=True)
-    file = models.FileField(upload_to="recordings/%Y/%m/%d/")
-    started_at = models.DateTimeField()
-    duration_seconds = models.PositiveIntegerField(validators=[MinValueValidator(1)])
-    size_bytes = models.BigIntegerField(null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    checksum = models.CharField(max_length=128, blank=True)
-
-    class Meta:
-        ordering = ["-started_at"]
-
-    def __str__(self):
-        started = timezone.localtime(self.started_at).strftime("%Y-%m-%d %H:%M")
-        return f"{self.station.name} — {started} ({self.duration_seconds}s)"
-
-"""

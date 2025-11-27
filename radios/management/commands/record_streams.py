@@ -14,7 +14,7 @@ from django.utils import timezone
 from django.db import transaction
 from django.conf import settings
 
-from radios.models import AudioStream, Recording
+from radios.models import Stream, Recording
 
 
 logger = logging.getLogger("stream_recorder")
@@ -45,7 +45,7 @@ class Command(BaseCommand):
             # Refresh active streams list
             active_streams = {
                 s.id: s
-                for s in AudioStream.objects.filter(is_active=True)
+                for s in Stream.objects.filter(is_active=True)
             }
 
             # start workers for new streams
@@ -88,7 +88,7 @@ class RecorderWorker:
     - Store file and create StreamRecording
     """
 
-    def __init__(self, stream: AudioStream):
+    def __init__(self, stream: Stream):
         self.stream = stream
         self.current_process = None
         self.current_chunk_start = None
@@ -124,7 +124,7 @@ class RecorderWorker:
         # Check for hour boundary
         now = timezone.now()
         elapsed = now - self.current_chunk_start
-        if elapsed.total_seconds() >= 3600:
+        if elapsed.total_seconds() >= settings.CHUNK_SIZE:
             logger.info("Worker[%s]: 1h reached, rotating chunk", self.stream.name)
             self._finalize_chunk()
             self._start_new_chunk()
@@ -145,7 +145,7 @@ class RecorderWorker:
             "-y",  # auto-overwrite if file somehow exists
             "-hide_banner",
             "-loglevel", "warning",
-            "-i", self.stream.streaming_url,
+            "-i", self.stream.url,
             "-vn",
             "-acodec", "copy",
             "-f", "mp3",

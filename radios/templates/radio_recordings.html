@@ -9,7 +9,7 @@
     <!-- Header -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <h1 class="text-3xl font-bold">🎙️ Recordings of {{ radio.name }}</h1>
-        <a href="{% url 'radio_detail' radio.pk %}"
+        <a href="{% url 'radio_detail' radio.slug %}"
            class="px-4 py-2 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-600 transition">
             ← Back to Radio
         </a>

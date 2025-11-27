@@ -19,6 +19,15 @@
                 <p class="text-gray-600 dark:text-gray-300 mt-1">📡 {{ radio.frequency }}</p>
             {% endif %}
         </div>
+        <div class="flex justify-end">
+            <a href="{% url 'radio_recordings' radio.slug %}"
+               class="px-5 py-2.5 rounded-xl font-medium shadow
+                      bg-blue-600 text-white hover:bg-blue-700
+                      dark:bg-blue-500 dark:hover:bg-blue-600
+                      transition">
+                Archive
+            </a>
+        </div>
     </div>
 
     <!-- Grid Information -->
@@ -68,14 +77,16 @@
     </div>
 
     <!-- Streaming Section -->
-    {% if radio.stream_url %}
+    {% if radio.streams %}
+    {% for stream in radio.streams.all %}
     <div class="p-4 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
         <h2 class="text-xl font-semibold mb-3">Live Stream</h2>
         <audio controls class="w-full">
-            <source src="{{ radio.stream_url }}" type="audio/mpeg">
+            <source src="{{ stream.url }}" type="audio/mpeg">
             Your browser does not support the audio element.
         </audio>
     </div>
+    {% endfor %}
     {% endif %}
 
 </div>

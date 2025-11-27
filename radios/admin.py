@@ -3,9 +3,9 @@ from django.db import models
 from django.contrib import admin
 #from django.contrib.postgres.fields import ArrayField
 from django import forms
-from .models import Radio, Recording, AudioStream
+from .models import Radio, Recording, Stream
 
-admin.site.register(AudioStream)
+admin.site.register(Stream)
 admin.site.register(Recording)
 
 
