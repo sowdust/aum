@@ -7,7 +7,7 @@ from django.core.files import File
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 from django.db import transaction
-from radios.models import AudioStream, StreamRecording
+from radios.models import AudioStream, Recording
 from django.conf import settings
 
 
@@ -192,7 +192,7 @@ class RecorderWorker:
 
         # save in a DB transaction so both file+row are consistent
         with transaction.atomic():
-            rec = StreamRecording(
+            rec = Recording(
                 stream=self.stream,
                 start_time=self.current_chunk_start,
                 end_time=end_time,

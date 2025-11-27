@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Radio Directory{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+    <!-- Page Header -->
+    <div class="flex items-center justify-between">
+        <h1 class="text-3xl font-bold">Community Radios</h1>
+    </div>
+
+    <!-- Grid of Cards -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        {% for radio in radios %}
+        <a href="{% url 'radio_detail' radio.slug %}" class="group block p-4 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm hover:shadow-md dark:hover:shadow-none transition">
+
+            <!-- Logo -->
+            {% if radio.logo %}
+            <img src="{{ radio.logo.url }}" alt="{{ radio.name }} logo"
+                 class="w-full h-40 object-cover rounded-lg mb-4 border border-gray-200 dark:border-gray-700" />
+            {% endif %}
+
+            <!-- Name & Frequency -->
+            <h2 class="text-xl font-semibold group-hover:text-blue-600 dark:group-hover:text-blue-400 transition">{{ radio.name }}</h2>
+            {% if radio.frequency %}
+            <p class="text-gray-600 dark:text-gray-300 text-sm mb-2">📡 {{ radio.frequency }}</p>
+            {% endif %}
+
+            <!-- Location -->
+            <p class="text-sm text-gray-700 dark:text-gray-300 mb-3">
+                {{ radio.city }}, {{ radio.country.name }}
+            </p>
+
+            <!-- Broadcast Types -->
+            <div class="flex flex-wrap gap-2 mb-4">
+                {% for item in radio.broadcast_type.all %}
+                <span class="px-2 py-1 rounded-full bg-gray-200 dark:bg-gray-700 text-xs">{{ item }}</span>
+                {% endfor %}
+            </div>
+
+            <!-- Stream badge -->
+            {% if radio.stream_url %}
+            <div class="inline-block px-3 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800 dark:bg-green-800 dark:text-green-100">
+                LIVE
+            </div>
+            {% endif %}
+
+        </a>
+        {% empty %}
+        <p class="text-gray-600 dark:text-gray-300">No radios available yet.</p>
+        {% endfor %}
+    </div>
+</div>
+{% endblock content %}

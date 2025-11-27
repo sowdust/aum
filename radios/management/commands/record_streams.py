@@ -14,7 +14,7 @@ from django.utils import timezone
 from django.db import transaction
 from django.conf import settings
 
-from radios.models import AudioStream, StreamRecording
+from radios.models import AudioStream, Recording
 
 
 logger = logging.getLogger("stream_recorder")
@@ -220,7 +220,7 @@ class RecorderWorker:
 
         try:
             with transaction.atomic():
-                rec = StreamRecording(
+                rec = Recording(
                     stream=self.stream,
                     start_time=start_time,
                     end_time=end_time,

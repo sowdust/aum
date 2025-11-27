@@ -13,8 +13,9 @@ BROADCAST_TYPE_CHOICES = [
 
 
 class Radio(models.Model):
-    name = models.CharField(max_length=200)
+    name = models.CharField(max_length=180)
     slug = models.SlugField(max_length=220, unique=True)
+    motto = models.CharField(max_length=255, blank=True)
     description = models.TextField(blank=True)
     country = CountryField(blank=True, null=True)
     city = models.CharField(max_length=100, blank=True)
@@ -45,8 +46,8 @@ class Radio(models.Model):
 
 
 class AudioStream(models.Model):
+    radio = models.ForeignKey(Radio, on_delete=models.CASCADE, related_name="streams")
     name = models.CharField(max_length=200)
-    models.ForeignKey(Radio, on_delete=models.SET_NULL, related_name="streams")
     streaming_url = models.URLField()
     is_active = models.BooleanField(default=True)
 
@@ -66,7 +67,7 @@ def safe_stream_folder(stream_name: str) -> str:
     Produces a stable directory name from the stream name.
     Example: "Radio Rock 101.5" -> "radio-rock-101-5"
     """
-    return slugify(stream_name) or "stream"
+    return slugify(stream_name) or uuid.uuid4
 
 
 def recording_upload_path(instance, filename):
@@ -82,7 +83,7 @@ def recording_upload_path(instance, filename):
     )
 
 
-class StreamRecording(models.Model):
+class Recording(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     stream = models.ForeignKey("AudioStream", on_delete=models.CASCADE, related_name="recordings")
     start_time = models.DateTimeField()

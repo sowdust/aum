@@ -1,25 +1,48 @@
+{% load static %}
 <!DOCTYPE html>
-<html lang="en" class="h-full bg-gray-100">
+<html lang="en" class="h-full bg-gray-100 light">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{% block title %}Community Radios{% endblock %}</title>
+    <link rel="stylesheet" href="{% static 'css/base.css' %}">
 
     <!-- Tailwind CDN for quick development; replace with compiled CSS in production -->
     <script src="https://cdn.tailwindcss.com"></script>
 
+    <script>
+      document.addEventListener('DOMContentLoaded', function () {
+          const html = document.documentElement;
+          const saved = localStorage.getItem('theme');
+          if (saved) html.className = saved;
+
+          const btn = document.getElementById('theme-toggle');
+          btn.addEventListener('click', () => {
+              const next = html.classList.contains('dark') ? 'light' : 'dark';
+              html.classList.toggle('dark');
+              html.classList.toggle('light');
+              localStorage.setItem('theme', next);
+          });
+      });
+    </script>
+
     {% block head %}{% endblock %}
   </head>
 
-  <body class="min-h-full flex flex-col text-gray-800">
+  <body class="min-h-full flex flex-col text-gray-800 dark:bg-gray-900 dark:text-gray-100">
     <!-- Navigation -->
-    <header class="bg-white shadow">
+    <header class="bg-white dark:bg-gray-800 shadow dark:shadow-gray-700">
       <div class="mx-auto max-w-7xl px-4 py-4 flex items-center justify-between">
         <a href="/" class="text-2xl font-semibold tracking-tight">Community Radios</a>
-        <nav class="space-x-6 text-sm font-medium">
+        <nav class="space-x-6 text-sm font-medium flex items-center">
           <a href="/radios/" class="hover:text-blue-600">All Radios</a>
           <a href="/countries/" class="hover:text-blue-600">Countries</a>
           <a href="/about/" class="hover:text-blue-600">About</a>
+
+          <!-- Dark Mode Toggle -->
+          <button id="theme-toggle" class="ml-6 px-3 py-1 rounded border border-gray-400 dark:border-gray-600">
+            Toggle Dark
+          </button>
         </nav>
       </div>
     </header>
@@ -30,8 +53,8 @@
     </main>
 
     <!-- Footer -->
-    <footer class="bg-white border-t mt-10">
-      <div class="mx-auto max-w-7xl px-4 py-6 text-sm text-gray-500 flex justify-between">
+    <footer class="bg-white dark:bg-gray-800 border-t dark:border-gray-700 mt-10">
+      <div class="mx-auto max-w-7xl px-4 py-6 text-sm text-gray-500 dark:text-gray-400 flex justify-between">
         <p>© {{ now|date:"Y" }} Community Radios</p>
         <p class="space-x-4">
           <a href="/privacy/" class="hover:text-blue-600">Privacy</a>

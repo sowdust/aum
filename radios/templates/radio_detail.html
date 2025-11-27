@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}{{ radio.name }} — Radio{% endblock %}
+
+{% block content %}
+
+<div class="space-y-8">
+
+    <!-- Header: Logo + Title -->
+    <div class="flex flex-col sm:flex-row items-center sm:items-start sm:space-x-6 text-center sm:text-left">
+        {% if radio.logo %}
+            <img src="{{ radio.logo.url }}" alt="{{ radio.name }} logo" class="w-32 h-32 rounded-xl object-cover shadow-md dark:shadow-none" />
+        {% endif %}
+
+        <div class="mt-4 sm:mt-0">
+            <h1 class="text-3xl font-bold">{{ radio.name }}</h1>
+            {% if radio.frequency %}
+                <p class="text-gray-600 dark:text-gray-300 mt-1">📡 {{ radio.frequency }}</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Grid Information -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+        <!-- Left Column -->
+        <div class="space-y-4">
+            <div class="p-4 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
+                <h2 class="text-xl font-semibold mb-2">General Information</h2>
+                <ul class="space-y-1">
+                    <li><strong>Country:</strong> {{ radio.country.name }}</li>
+                    <li><strong>City:</strong> {{ radio.city }}</li>
+                    <li><strong>Language:</strong> {{ radio.language.name }}</li>
+                    {% if radio.website %}
+                        <li><strong>Website:</strong> <a href="{{ radio.website }}" class="text-blue-600 dark:text-blue-400 underline" target="_blank">Visit</a></li>
+                    {% endif %}
+                </ul>
+            </div>
+
+            <div class="p-4 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
+                <h2 class="text-xl font-semibold mb-2">Broadcast Types</h2>
+                <div class="flex flex-wrap gap-2">
+                    {% for item in radio.broadcast_type.all %}
+                        <span class="px-3 py-1 rounded-full bg-gray-200 dark:bg-gray-700 text-sm">{{ item }}</span>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Column -->
+        <div class="space-y-4">
+            {% if radio.latitude and radio.longitude %}
+            <div class="p-4 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
+                <h2 class="text-xl font-semibold mb-2">Geolocation</h2>
+                <p><strong>Latitude:</strong> {{ radio.latitude }}</p>
+                <p><strong>Longitude:</strong> {{ radio.longitude }}</p>
+            </div>
+            {% endif %}
+
+            {% if radio.description %}
+            <div class="p-4 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
+                <h2 class="text-xl font-semibold mb-2">Description</h2>
+                <p class="whitespace-pre-line">{{ radio.description }}</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Streaming Section -->
+    {% if radio.stream_url %}
+    <div class="p-4 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
+        <h2 class="text-xl font-semibold mb-3">Live Stream</h2>
+        <audio controls class="w-full">
+            <source src="{{ radio.stream_url }}" type="audio/mpeg">
+            Your browser does not support the audio element.
+        </audio>
+    </div>
+    {% endif %}
+
+</div>
+
+{% endblock content %}
