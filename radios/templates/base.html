@@ -1,6 +1,10 @@
 {% load static %}
 <!DOCTYPE html>
-<html lang="en" class="h-full bg-gray-100 light">
+<html lang="en"
+      class="h-full bg-gray-100 light"
+      x-data="{ }"
+      onload="if(localStorage.theme==='dark'){document.documentElement.classList.add('dark')}"
+>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -9,22 +13,6 @@
 
     <!-- Tailwind CDN for quick development; replace with compiled CSS in production -->
     <script src="https://cdn.tailwindcss.com"></script>
-
-    <script>
-      document.addEventListener('DOMContentLoaded', function () {
-          const html = document.documentElement;
-          const saved = localStorage.getItem('theme');
-          if (saved) html.className = saved;
-
-          const btn = document.getElementById('theme-toggle');
-          btn.addEventListener('click', () => {
-              const next = html.classList.contains('dark') ? 'light' : 'dark';
-              html.classList.toggle('dark');
-              html.classList.toggle('light');
-              localStorage.setItem('theme', next);
-          });
-      });
-    </script>
 
     {% block head %}{% endblock %}
   </head>
@@ -38,11 +26,6 @@
           <a href="/radios/" class="hover:text-blue-600">All Radios</a>
           <a href="/countries/" class="hover:text-blue-600">Countries</a>
           <a href="/about/" class="hover:text-blue-600">About</a>
-
-          <!-- Dark Mode Toggle -->
-          <button id="theme-toggle" class="ml-6 px-3 py-1 rounded border border-gray-400 dark:border-gray-600">
-            Toggle Dark
-          </button>
         </nav>
       </div>
     </header>
