@@ -20,8 +20,7 @@ class RadioAdminForm(forms.ModelForm):
 @admin.register(Radio)
 class RadioAdmin(admin.ModelAdmin):
     form = RadioAdminForm
-    list_display = ("name", "country", "city", "verified")
-    list_filter = ("country", "verified")
+    list_display = ("name", "country", "city")
     search_fields = ("name", "city", "description")
     prepopulated_fields = {"slug": ("name",)}
 
