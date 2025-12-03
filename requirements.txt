@@ -1,5 +1,4 @@
 Django
-django-guardian
 django-countries
 django-localeurl
 Pillow

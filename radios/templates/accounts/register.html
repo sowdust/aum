@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="max-w-lg mx-auto p-6 bg-white shadow rounded">
+  <h2 class="text-2xl font-bold mb-4">Create Account</h2>
+
+  <form method="POST" class="space-y-4">
+    {% csrf_token %}
+
+    {% if form.non_field_errors %}
+      <div class="p-3 bg-red-100 text-red-700 rounded">
+        {{ form.non_field_errors }}
+      </div>
+    {% endif %}
+
+    {% for field in form %}
+      <div>
+        <label class="font-semibold">{{ field.label }}</label>
+        {{ field }}
+
+        <!-- Field errors -->
+        {% if field.errors %}
+          <p class="text-red-600 text-sm mt-1">
+            {{ field.errors|striptags }}
+          </p>
+        {% endif %}
+      </div>
+    {% endfor %}
+
+    <button class="px-4 py-2 bg-blue-600 text-white rounded">
+      Register
+    </button>
+  </form>
+</div>
+
+{% endblock %}

@@ -1,0 +1,12 @@
+<!-- templates/accounts/login.html -->
+{% extends 'base.html' %}
+{% block content %}
+<div class="max-w-md mx-auto mt-10 bg-white p-6 rounded-xl shadow">
+<h2 class="text-2xl font-bold mb-4">Login</h2>
+<form method="post" class="space-y-4">
+{% csrf_token %}
+{{ form.as_p }}
+<button type="submit" class="w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700">Login</button>
+</form>
+</div>
+{% endblock %}

@@ -1,7 +1,10 @@
 from django.conf import settings
-from django.db import models
-from django.core.validators import URLValidator, MinValueValidator, MaxValueValidator
+from django.contrib.auth.models import User, AbstractUser
+from django.core.validators import URLValidator
 from django_countries.fields import CountryField
+from django.utils.text import slugify
+from django.db import models
+import uuid
 
 BROADCAST_TYPE_CHOICES = [
     ("fm", "FM"),
@@ -17,6 +20,7 @@ class Radio(models.Model):
     logo = models.ImageField(upload_to="logos/", null=True, blank=True)
     motto = models.CharField(max_length=255, blank=True)
     description = models.TextField(blank=True)
+    since = models.DateField(blank=True, null=True)
     is_fm = models.BooleanField(default=False)
     is_am = models.BooleanField(default=False)
     is_dab = models.BooleanField(default=False)
@@ -32,29 +36,34 @@ class Radio(models.Model):
     contact_email = models.EmailField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    owner = models.ForeignKey(
+    show_archive = models.BooleanField(default=False)
+
+    members = models.ManyToManyField(
         settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name="managed_radios"
+        through="RadioMembership",
+        related_name="radios",
+        blank = True,
     )
-
-    permissions = (
-        ('create_radio', 'Create Radio'),
-        ('edit_radio', 'Edit Radio'),
-        ('delete_radio', 'Delete Radio'),
-    )
-
-    # assign_perm('create_radio', user, radio)
-
-    def is_owned(self):
-        return self.owner is not None
 
     class Meta:
         ordering = ["name"]
 
     def __str__(self):
         return self.name
+
+
+class RadioMembership(models.Model):
+    ROLE_CHOICES = [
+        ("owner", "Owner"),
+        ("dj", "DJ"),
+        ("viewer", "Viewer"),
+    ]
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    radio = models.ForeignKey(Radio, on_delete=models.CASCADE)
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default="viewer")
+
+    class Meta:
+        unique_together = ("user", "radio")
 
 
 class Stream(models.Model):
@@ -65,11 +74,6 @@ class Stream(models.Model):
 
     def __str__(self):
         return self.name
-
-
-import uuid
-from django.db import models
-from django.utils.text import slugify
 
 
 def safe_stream_folder(stream_name: str) -> str:
@@ -106,3 +110,12 @@ class Recording(models.Model):
     def __str__(self):
         return f"{self.stream.radio} [{self.start_time} - {self.end_time}]"
 
+
+class RadioUser(AbstractUser):
+    email = models.EmailField(blank=True)
+    phone = models.CharField(max_length=20, blank=True)
+
+class EmailVerificationToken(models.Model):
+    user = models.ForeignKey(RadioUser, on_delete=models.CASCADE)
+    token = models.CharField(max_length=100, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)

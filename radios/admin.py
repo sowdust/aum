@@ -3,10 +3,11 @@ from django.db import models
 from django.contrib import admin
 #from django.contrib.postgres.fields import ArrayField
 from django import forms
-from .models import Radio, Recording, Stream
+from .models import Radio, Recording, Stream, RadioUser
 
 admin.site.register(Stream)
 admin.site.register(Recording)
+admin.site.register(RadioUser)
 
 
 class RadioAdminForm(forms.ModelForm):

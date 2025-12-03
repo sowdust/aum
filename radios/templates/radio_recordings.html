@@ -50,6 +50,71 @@
         {% endfor %}
     </div>
 
+
+
+
+    <!-- Header -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-8 gap-4">
+        <h1 class="text-3xl font-bold text-gray-900 dark:text-gray-50">
+            Archive — {{ radio.name }}
+        </h1>
+    </div>
+
+    <!-- Date Range Filter -->
+    <form method="get"
+          class="bg-white dark:bg-gray-800 p-4 rounded-xl shadow flex flex-col sm:flex-row gap-4 items-start sm:items-end">
+
+        <div>
+            <label class="block text-sm text-gray-700 dark:text-gray-300 mb-1">Start date</label>
+            <input type="datetime-local"
+                   name="start"
+                   value="{{ start }}"
+                   class="border dark:border-gray-600 rounded-lg px-3 py-2 bg-gray-50 dark:bg-gray-700 dark:text-gray-100">
+        </div>
+
+        <div>
+            <label class="block text-sm text-gray-700 dark:text-gray-300 mb-1">End date</label>
+            <input type="datetime-local"
+                   name="end"
+                   value="{{ end }}"
+                   class="border dark:border-gray-600 rounded-lg px-3 py-2 bg-gray-50 dark:bg-gray-700 dark:text-gray-100">
+        </div>
+
+        <button type="submit"
+                class="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600">
+            Filter
+        </button>
+
+        {% if start or end %}
+            <a href="?"
+               class="px-4 py-2 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-600">
+                Clear
+            </a>
+        {% endif %}
+    </form>
+
+    <!-- Recordings List -->
+    <div class="mt-10 space-y-6">
+        {% for rec in recordings %}
+            <div class="p-4 bg-white dark:bg-gray-800 rounded-xl shadow">
+                <div class="flex justify-between items-center">
+                    <p class="text-sm text-gray-600 dark:text-gray-400">
+                        {{ rec.start_time|date:"Y-m-d H:i" }} — {{ rec.end_time|date:"H:i" }}
+                    </p>
+                </div>
+
+                <audio controls class="mt-3 w-full">
+                    <source src="{{ rec.audio_file.url }}" type="audio/mpeg">
+                </audio>
+            </div>
+        {% empty %}
+            <p class="text-gray-500 dark:text-gray-400 text-center mt-10">
+                No recordings found for this time range.
+            </p>
+        {% endfor %}
+    </div>
+
+
 </div>
 {% include "components/radio_card.html" with radio=radio %}
 {% endblock content %}
