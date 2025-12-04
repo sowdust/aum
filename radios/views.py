@@ -1,7 +1,18 @@
 from django.contrib.auth import logout
 from django.http import HttpResponse
 from django.shortcuts import render, get_object_or_404
-
+from django.shortcuts import render, redirect, get_object_or_404
+from django.contrib.auth import login
+from .models import EmailVerificationToken
+from django.contrib.auth.forms import UserCreationForm
+from django.contrib.auth.models import User
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.urls import reverse
+from django.core.mail import send_mail
+from django.utils.crypto import get_random_string
+from django.conf import settings
+from .models import EmailVerificationToken
 from .forms import UserRegisterForm
 from .models import Radio, Recording, Stream
 
@@ -47,19 +58,6 @@ def radio_recordings(request, slug):
     }
     return render(request,'radio_recordings.html', context)
 
-
-from django.contrib.auth.forms import UserCreationForm
-from django.contrib.auth.models import User
-from django.shortcuts import render, redirect
-from django.contrib import messages
-from django.urls import reverse
-from django.core.mail import send_mail
-from django.utils.crypto import get_random_string
-from django.conf import settings
-from .models import EmailVerificationToken
-
-
-
 def register(request):
     if request.method == "POST":
         form = UserRegisterForm(request.POST)
@@ -84,13 +82,6 @@ def register(request):
         form = UserRegisterForm()
 
     return render(request, "accounts/register.html", {"form": form})
-
-
-
-# accounts/views.py
-from django.shortcuts import render, redirect, get_object_or_404
-from django.contrib.auth import login
-from .models import EmailVerificationToken
 
 def verify_email(request, token):
     token_obj = get_object_or_404(EmailVerificationToken, token=token)

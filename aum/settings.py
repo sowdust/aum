@@ -120,6 +120,14 @@ TEMPLATES = [
     },
 ]
 
+
+TEMPLATE_CONTEXT_PROCESSORS = (
+    'django.core.context_processors.request',
+    'django.contrib.auth.context_processors.auth',
+    'django.core.context_processors.auth',
+)
+
+
 WSGI_APPLICATION = 'aum.wsgi.application'
 
 
@@ -168,6 +176,8 @@ TIME_ZONE = 'UTC'
 USE_I18N = True
 
 USE_TZ = True
+
+LOGIN_REDIRECT_URL = '/'
 
 
 # Static files (CSS, JavaScript, Images)
