@@ -101,3 +101,106 @@ def verify_email(request, token):
 def logout_view(request):
     logout(request)
     return redirect("login")
+
+"""
+# views.py
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import render, redirect
+from .forms import RadioCreateForm, StreamFormSet
+from .models import RadioMembership
+
+@login_required
+def radio_create(request):
+    if request.method == "POST":
+        form = RadioCreateForm(request.POST, request.FILES)
+        formset = StreamFormSet(request.POST)
+
+        if form.is_valid() and formset.is_valid():
+            radio = form.save()
+
+            # Assign ownership if checkbox checked
+            if form.cleaned_data.get("declare_owner"):
+                RadioMembership.objects.create(
+                    user=request.user,
+                    radio=radio,
+                    role="owner",
+                    verified="false",
+                )
+            else:
+                # Otherwise, user becomes simple member (optional)
+                RadioMembership.objects.create(
+                    user=request.user,
+                    radio=radio,
+                    role="member",
+                )
+
+            formset.instance = radio
+            formset.save()
+
+            return redirect("radio_detail", pk=radio.slug)
+
+    else:
+        form = RadioCreateForm()
+        formset = StreamFormSet()
+
+    return render(request, "radios/radio_create.html", {
+        "form": form,
+        "formset": formset,
+    })
+
+
+
+
+# radios/views.py
+
+
+
+"""
+
+from django.shortcuts import render, redirect
+from django.contrib.auth.decorators import login_required
+from .forms import RadioCreateForm, StreamFormSet, RadioMembershipChoiceForm
+from .models import Radio, RadioMembership
+
+@login_required
+def radio_create(request):
+    if request.method == "POST":
+        form = RadioCreateForm(request.POST, request.FILES)
+        membership_form = RadioMembershipChoiceForm(request.POST)
+        formset = StreamFormSet(request.POST)
+
+        if form.is_valid() and formset.is_valid() and membership_form.is_valid():
+            radio = form.save()
+
+            # Save streams
+            formset.instance = radio
+            formset.save()
+
+            # Save membership with selected role
+            RadioMembership.objects.create(
+                user=request.user,
+                radio=radio,
+                role=membership_form.cleaned_data["membership_type"]
+            )
+
+            return redirect("radio_detail", slug=radio.slug)
+        else:
+            print(form.is_valid())
+            print(formset.is_valid())
+            print(membership_form.is_valid())
+            print("Form not valid!")
+
+    else:
+        form = RadioCreateForm()
+        membership_form = RadioMembershipChoiceForm()
+        formset = StreamFormSet()
+
+    return render(
+        request,
+        "radio_create.html",
+        {
+            "form": form,
+            "membership_form": membership_form,
+            "formset": formset,
+        }
+    )

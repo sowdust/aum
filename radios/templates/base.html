@@ -28,6 +28,7 @@
 
     {% if user.is_authenticated %}
            <p>Welcome, {{ user.username }}. Thanks for logging in.</p>
+            <a href="/radios/create/" class="hover:text-blue-600">Add radio</a>
             <a href="/logout/" class="hover:text-blue-600">Logout</a>
     {% else %}
           <p>Welcome, new user. Please log in.</p>

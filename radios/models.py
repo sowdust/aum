@@ -1,5 +1,5 @@
 from django.conf import settings
-from django.contrib.auth.models import User, AbstractUser
+from django.contrib.auth.models import AbstractUser
 from django.core.validators import URLValidator
 from django_countries.fields import CountryField
 from django.utils.text import slugify
@@ -16,12 +16,13 @@ BROADCAST_TYPE_CHOICES = [
 
 class Radio(models.Model):
     name = models.CharField(max_length=180)
-    slug = models.SlugField(max_length=220, unique=True)
+    slug = models.SlugField(primary_key=True, unique=True, blank=True)
     logo = models.ImageField(upload_to="logos/", null=True, blank=True)
     motto = models.CharField(max_length=255, blank=True)
     description = models.TextField(blank=True)
-    since = models.DateField(blank=True, null=True)
-    is_fm = models.BooleanField(default=False)
+    since = models.DateField(blank=True, null=True, help_text="Radio creation date")
+    until = models.DateField(blank=True, null=True, help_text="Radio end date")
+    is_fm = models.BooleanField(default=False, help_text="Does the radio broadcast via FM?")
     is_am = models.BooleanField(default=False)
     is_dab = models.BooleanField(default=False)
     is_sw = models.BooleanField(default=False)
@@ -45,11 +46,62 @@ class Radio(models.Model):
         blank = True,
     )
 
+    def _generate_unique_slug(self):
+        """
+        Generate a slug from name. If the slug is taken, add city, country,
+        frequency in that order. If still not unique, append -2, -3, ...
+        """
+
+        base_slug = slugify(self.name)
+        slug_candidate = base_slug
+
+        def is_unique(slug_to_test):
+            qs = Radio.objects.filter(slug=slug_to_test)
+            if self.pk:
+                qs = qs.exclude(pk=self.pk)
+            return not qs.exists()
+
+        if is_unique(slug_candidate):
+            return slug_candidate
+
+        if self.city:
+            slug_candidate = slugify(f"{self.name}-{self.city}")
+            if is_unique(slug_candidate):
+                return slug_candidate
+
+        if self.country:
+            slug_candidate = slugify(f"{self.name}-{self.city}-{self.country}")
+            if is_unique(slug_candidate):
+                return slug_candidate
+
+        if self.frequencies:
+            slug_candidate = slugify(
+                f"{self.name}-{self.city}-{self.country}-{self.frequency}"
+            )
+            if is_unique(slug_candidate):
+                return slug_candidate
+
+        counter = 2
+        while True:
+            slug_candidate = f"{base_slug}-{counter}"
+            if is_unique(slug_candidate):
+                return slug_candidate
+            counter += 1
+
+
+
     class Meta:
         ordering = ["name"]
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = self._generate_unique_slug()
+
+        super().save(*args, **kwargs)
+
 
 
 class RadioMembership(models.Model):
@@ -61,6 +113,7 @@ class RadioMembership(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     radio = models.ForeignKey(Radio, on_delete=models.CASCADE)
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default="viewer")
+    verified = models.BooleanField(default=False)
 
     class Meta:
         unique_together = ("user", "radio")

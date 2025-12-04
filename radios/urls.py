@@ -4,6 +4,7 @@ from django.contrib.auth import views as auth_views
 
 urlpatterns = [
     path('radios/', views.radios_list, name='radios_list'),
+    path("radios/create/", views.radio_create, name="radio_create"),
     path('radios/<slug:slug>', views.radio_detail, name='radio_detail'),
     path('radios/<slug:slug>/recordings', views.radio_recordings, name='radio_recordings'),
     path('', views.radios_list, name='index'),
