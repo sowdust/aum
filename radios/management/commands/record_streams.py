@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import time
 import uuid
+import zoneinfo
 
 from django.core.files import File
 from django.core.management.base import BaseCommand
@@ -14,10 +15,36 @@ from django.utils import timezone
 from django.db import transaction
 from django.conf import settings
 
-from radios.models import Stream, Recording
+from radios.models import Stream, Recording, GlobalPipelineSettings
 
 
 logger = logging.getLogger("stream_recorder")
+
+
+def _is_recording_enabled(stream) -> bool:
+    """Return True if recording is permitted by global and per-stream flags."""
+    try:
+        global_settings = GlobalPipelineSettings.get_settings()
+        if not global_settings.enable_recording:
+            return False
+    except Exception:
+        logger.warning("GlobalPipelineSettings table not ready; skipping global flag check.")
+    return getattr(stream, "enable_recording", True)
+
+
+def _is_within_recording_window(radio) -> bool:
+    """Return True if current time is within this radio's configured recording window."""
+    start_h = radio.recording_start_hour
+    end_h = radio.recording_end_hour
+    # Both 0 means record 24/7
+    if start_h == 0 and end_h == 0:
+        return True
+    tz = zoneinfo.ZoneInfo(radio.timezone)
+    current_hour = datetime.datetime.now(tz).hour
+    if start_h < end_h:
+        return start_h <= current_hour < end_h
+    # Overnight window e.g. 22 to 06
+    return current_hour >= start_h or current_hour < end_h
 
 
 class Command(BaseCommand):
@@ -42,32 +69,56 @@ class Command(BaseCommand):
         signal.signal(signal.SIGTERM, shutdown)
 
         while running:
-            # Refresh active streams list
+            # Refresh active streams list from DB
             active_streams = {
                 s.id: s
-                for s in Stream.objects.filter(is_active=True)
+                for s in Stream.objects.filter(is_active=True).select_related("radio", "audio_feed")
             }
 
-            # start workers for new streams
+            # Update stream references in workers so they use fresh DB values
             for stream_id, stream in active_streams.items():
-                if stream_id not in workers:
-                    logger.info("Starting worker for stream '%s' (%s)", stream.name, stream_id)
-                    workers[stream_id] = RecorderWorker(stream)
-                    workers[stream_id].start()
+                if stream_id in workers:
+                    workers[stream_id].stream = stream
 
-            # stop workers for streams that got deactivated
+            # Stop workers for streams that were deactivated or had recording disabled
             for stream_id in list(workers.keys()):
-                if stream_id not in active_streams:
-                    logger.info("Stopping worker for deactivated stream %s", stream_id)
+                stream = active_streams.get(stream_id)
+                if stream is None:
+                    logger.info(
+                        "Stream %s deactivated, stopping worker", stream_id
+                    )
                     workers[stream_id].stop()
                     del workers[stream_id]
+                elif not _is_recording_enabled(stream):
+                    logger.info(
+                        "Recording disabled for stream '%s', stopping worker", stream.name
+                    )
+                    workers[stream_id].stop()
+                    del workers[stream_id]
+
+            # Start workers for new eligible streams
+            for stream_id, stream in active_streams.items():
+                if stream_id not in workers:
+                    if _is_within_recording_window(stream.source) and _is_recording_enabled(stream):
+                        logger.info(
+                            "Starting worker for stream '%s' (%s)", stream.name, stream_id
+                        )
+                        workers[stream_id] = RecorderWorker(stream)
+                        workers[stream_id].start()
+                    else:
+                        logger.debug(
+                            "Stream '%s' outside recording window or recording disabled, skipping",
+                            stream.name
+                        )
 
             # tick workers
             for w in list(workers.values()):
                 try:
                     w.tick()
                 except Exception as e:
-                    logger.exception("Worker for stream '%s' crashed in tick(): %s", w.stream.name, e)
+                    logger.exception(
+                        "Worker for stream '%s' crashed in tick(): %s", w.stream.name, e
+                    )
 
             time.sleep(5)
 
@@ -105,12 +156,16 @@ class RecorderWorker:
     def tick(self):
         """
         Called periodically.
+        - If outside recording window: finalize and stop
         - If ffmpeg died: finalize file, start new chunk
-        - If >=1h passed: rotate
+        - If chunk size reached: rotate
         """
+        in_window = _is_within_recording_window(self.stream.source)
+
         if not self.current_process:
-            logger.warning("Worker[%s]: ffmpeg process missing, restarting", self.stream.name)
-            self._start_new_chunk()
+            if in_window:
+                logger.warning("Worker[%s]: ffmpeg process missing, restarting", self.stream.name)
+                self._start_new_chunk()
             return
 
         # Check if ffmpeg exited
@@ -118,14 +173,21 @@ class RecorderWorker:
             logger.warning("Worker[%s]: ffmpeg exited unexpectedly (rc=%s), rotating chunk",
                            self.stream.name, self.current_process.returncode)
             self._finalize_chunk()
-            self._start_new_chunk()
+            if in_window:
+                self._start_new_chunk()
             return
 
-        # Check for hour boundary
+        # Stop recording if outside the window
+        if not in_window:
+            logger.info("Worker[%s]: outside recording window, finalizing chunk", self.stream.name)
+            self._finalize_chunk()
+            return
+
+        # Check for chunk size boundary
         now = timezone.now()
         elapsed = now - self.current_chunk_start
         if elapsed.total_seconds() >= settings.CHUNK_SIZE:
-            logger.info("Worker[%s]: 1h reached, rotating chunk", self.stream.name)
+            logger.info("Worker[%s]: chunk size reached, rotating", self.stream.name)
             self._finalize_chunk()
             self._start_new_chunk()
 
@@ -158,7 +220,12 @@ class RecorderWorker:
 
         logger.info("Worker[%s]: starting ffmpeg -> %s", self.stream.name, temp_path)
         try:
-            self.current_process = subprocess.Popen(cmd)
+            self.current_process = subprocess.Popen(
+                cmd,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
         except Exception:
             logger.exception("Worker[%s]: failed to start ffmpeg", self.stream.name)
             self.current_process = None

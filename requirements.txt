@@ -4,3 +4,11 @@ django-localeurl
 Pillow
 requests
 django-language-field
+
+# Broadcast analysis
+inaSpeechSegmenter # CNN-based speech/music/noise segmentation for broadcast audio
+# webrtcvad        # Voice Activity Detection — replaced by inaSpeechSegmenter (kept for rollback)
+faster-whisper     # Local speech transcription (CPU or GPU)
+pyacoustid         # AcoustID song identification (needs fpcalc binary)
+openai             # API transcription fallback + LLM summarisation
+# anthropic        # Alternative LLM provider (uncomment if preferred)

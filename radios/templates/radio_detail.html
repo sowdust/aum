@@ -80,13 +80,35 @@
     {% if radio.streams %}
     {% for stream in radio.streams.all %}
     <div class="p-4 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
-        <h2 class="text-xl font-semibold mb-3">Live Stream</h2>
+        <div class="flex items-center justify-between mb-3">
+            <h2 class="text-xl font-semibold">{{ stream.name }}</h2>
+            <div class="flex items-center gap-3">
+                {% if not stream.is_active %}
+                <span class="text-xs px-2 py-0.5 rounded bg-gray-200 dark:bg-gray-700 text-gray-500">inactive</span>
+                {% endif %}
+                {% if is_owner or is_admin %}
+                <a href="{% url 'stream_settings' radio.slug stream.id %}"
+                   class="text-xs px-3 py-1 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 transition">
+                    Settings
+                </a>
+                {% endif %}
+            </div>
+        </div>
         <audio controls class="w-full">
             <source src="{{ stream.url }}" type="audio/mpeg">
             Your browser does not support the audio element.
         </audio>
     </div>
     {% endfor %}
+    {% endif %}
+
+    {% if is_admin %}
+    <div class="flex justify-end">
+        <a href="{% url 'global_pipeline_settings' %}"
+           class="text-sm text-yellow-600 dark:text-yellow-400 hover:underline">
+            Global Pipeline Settings
+        </a>
+    </div>
     {% endif %}
 
 </div>

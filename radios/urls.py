@@ -7,6 +7,8 @@ urlpatterns = [
     path("radios/create/", views.radio_create, name="radio_create"),
     path('radios/<slug:slug>', views.radio_detail, name='radio_detail'),
     path('radios/<slug:slug>/recordings', views.radio_recordings, name='radio_recordings'),
+    path('radios/<slug:radio_slug>/streams/<int:stream_id>/settings/', views.stream_settings, name='stream_settings'),
+    path('pipeline/settings/', views.global_pipeline_settings, name='global_pipeline_settings'),
     path('', views.radios_list, name='index'),
     path("register/", views.register, name="register"),
     path("login/", auth_views.LoginView.as_view(template_name="accounts/login.html"), name="login"),

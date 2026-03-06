@@ -62,8 +62,12 @@ LOGGING = {
     },
 
     "loggers": {
-        # our recorder code will use this logger name
         "stream_recorder": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "broadcast_analysis": {
             "handlers": ["console"],
             "level": "INFO",
             "propagate": False,
@@ -202,3 +206,33 @@ CHUNK_SIZE = 20 * 60
 
 EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 DEFAULT_FROM_EMAIL = "noreply@aum.com"
+
+
+# === Broadcast Analysis ===
+
+# Segmentation (inaSpeechSegmenter post-processing)
+# Minimum segment duration in seconds.  Segments shorter than this are
+# absorbed into neighbours.  Higher = fewer, longer blocks (cleaner for
+# radio shows).  Lower = finer granularity.  Recommended range: 10-30.
+SEGMENT_MIN_DURATION = 15.0
+
+# Legacy webrtcvad settings (only used if rolling back to segmenter_webrtcvad.py)
+SILENCE_THRESHOLD_DB = -40      # dB — below this = silence (vs music)
+VAD_AGGRESSIVENESS = 2          # webrtcvad 0 (permissive) to 3 (strict)
+
+# Transcription backend: "local" (faster-whisper) or "api" (OpenAI Whisper)
+TRANSCRIPTION_BACKEND = "local"
+WHISPER_MODEL_SIZE = "medium"   # tiny | base | small | medium | large-v3
+WHISPER_DEVICE = "cpu"          # cpu | cuda
+WHISPER_COMPUTE_TYPE = "int8"   # int8 | float16 | float32
+ANALYSIS_MAX_WORKERS = 2
+
+# API-based transcription + LLM summarisation (set via environment)
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+LLM_PROVIDER = "openai"         # openai | anthropic
+LLM_MODEL = "gpt-4o-mini"
+LLM_API_KEY = os.environ.get("LLM_API_KEY", "") or os.environ.get("OPENAI_API_KEY", "")
+
+# AcoustID song identification (free — https://acoustid.org/)
+ACOUSTID_API_KEY = os.environ.get("ACOUSTID_API_KEY", "")
+ANALYZE_POLL_INTERVAL = 30   # seconds between daemon polling cycles

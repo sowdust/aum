@@ -1,6 +1,6 @@
 from django import forms
 from django.contrib.auth.forms import UserCreationForm
-from .models import RadioUser, RadioMembership
+from .models import RadioUser, RadioMembership, Stream, GlobalPipelineSettings
 
 
 class UserRegisterForm(UserCreationForm):
@@ -26,7 +26,8 @@ class RadioCreateForm(forms.ModelForm):
             "name", "frequencies", "website", "country", "city",
             "languages", "description", "logo", "since", "until",
             "is_fm", "is_dab", "is_am", "is_sw", "is_web",
-            "motto", "show_archive"
+            "motto", "show_archive",
+            "timezone", "recording_start_hour", "recording_end_hour",
         ]
 
 StreamFormSet = inlineformset_factory(
@@ -44,3 +45,37 @@ class RadioMembershipChoiceForm(forms.Form):
         choices=RadioMembership.ROLE_CHOICES,
         widget=forms.Select(attrs={"class": "select select-bordered w-full"})
     )
+
+
+class StreamVisibilityForm(forms.ModelForm):
+    """Owner-editable: stream active toggle and visibility per stage."""
+    class Meta:
+        model = Stream
+        fields = [
+            "is_active",
+            "recording_owner_visible", "recording_public_visible",
+            "segmentation_owner_visible", "segmentation_public_visible",
+            "fingerprinting_owner_visible", "fingerprinting_public_visible",
+            "transcription_owner_visible", "transcription_public_visible",
+            "summarization_owner_visible", "summarization_public_visible",
+        ]
+
+
+class StreamPipelineForm(forms.ModelForm):
+    """Admin-only: enable/disable each pipeline stage for a stream."""
+    class Meta:
+        model = Stream
+        fields = [
+            "enable_recording", "enable_segmentation", "enable_fingerprinting",
+            "enable_transcription", "enable_summarization",
+        ]
+
+
+class GlobalPipelineSettingsForm(forms.ModelForm):
+    """Admin-only: global pipeline stage kill switches."""
+    class Meta:
+        model = GlobalPipelineSettings
+        fields = [
+            "enable_recording", "enable_segmentation", "enable_fingerprinting",
+            "enable_transcription", "enable_summarization",
+        ]

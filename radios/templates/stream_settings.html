@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+
+{% block title %}{{ stream.name }} — Settings{% endblock %}
+
+{% block content %}
+<div class="space-y-8 max-w-3xl mx-auto">
+
+    <!-- Breadcrumb -->
+    <nav class="text-sm text-gray-500 dark:text-gray-400">
+        <a href="{% url 'radios_list' %}" class="hover:text-blue-600">Radios</a>
+        &rsaquo;
+        <a href="{% url 'radio_detail' radio.slug %}" class="hover:text-blue-600">{{ radio.name }}</a>
+        &rsaquo; {{ stream.name }} Settings
+    </nav>
+
+    <h1 class="text-2xl font-bold">Stream Settings: {{ stream.name }}</h1>
+
+    <!-- Messages -->
+    {% for message in messages %}
+    <div class="p-3 rounded-lg {% if message.tags == 'success' %}bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200{% else %}bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200{% endif %}">
+        {{ message }}
+    </div>
+    {% endfor %}
+
+    <!-- Pipeline Stage Status -->
+    <div class="p-4 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
+        <h2 class="text-lg font-semibold mb-3">Pipeline Stage Status</h2>
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {% for stage, active in stage_statuses.items %}
+            <div class="flex items-center gap-2">
+                {% if active %}
+                <span class="inline-block w-2.5 h-2.5 rounded-full bg-green-500"></span>
+                {% else %}
+                <span class="inline-block w-2.5 h-2.5 rounded-full bg-gray-400"></span>
+                {% endif %}
+                <span class="capitalize text-sm">{{ stage }}</span>
+                <span class="text-xs {% if active %}text-green-600 dark:text-green-400{% else %}text-gray-400{% endif %}">
+                    {% if active %}active{% else %}off{% endif %}
+                </span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Admin: Pipeline Enable Controls -->
+    {% if is_admin and pipeline_form %}
+    <div class="p-4 rounded-xl border border-yellow-300 dark:border-yellow-700 bg-white dark:bg-gray-800 shadow-sm">
+        <h2 class="text-lg font-semibold mb-1">Pipeline Enables <span class="text-xs font-normal text-yellow-600 dark:text-yellow-400">(admin only)</span></h2>
+        <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
+            Enable or disable each pipeline stage for this stream. Disabling a stage also disables all downstream stages.
+        </p>
+        <form method="post" class="space-y-3">
+            {% csrf_token %}
+            {% for field in pipeline_form %}
+            <label class="flex items-center gap-3 cursor-pointer">
+                {{ field }}
+                <span class="text-sm">{{ field.label }}</span>
+            </label>
+            {% endfor %}
+            <button name="save_pipeline" type="submit"
+                    class="mt-2 px-4 py-2 rounded-lg bg-yellow-500 text-white hover:bg-yellow-600 transition text-sm font-medium">
+                Save Pipeline Settings
+            </button>
+        </form>
+    </div>
+    {% endif %}
+
+    <!-- Owner / Admin: Visibility Controls -->
+    {% if is_owner or is_admin %}
+    <div class="p-4 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
+        <h2 class="text-lg font-semibold mb-1">Stream &amp; Visibility Settings</h2>
+        <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
+            Control whether this stream is active and what results are visible to owners and the public.
+        </p>
+        <form method="post" class="space-y-4">
+            {% csrf_token %}
+
+            <!-- is_active -->
+            <div class="border-b border-gray-200 dark:border-gray-700 pb-4">
+                <label class="flex items-center gap-3 cursor-pointer">
+                    {{ visibility_form.is_active }}
+                    <span class="text-sm font-medium">Stream active (enable recording)</span>
+                </label>
+            </div>
+
+            <!-- Per-stage visibility -->
+            <div>
+                <p class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Stage result visibility:</p>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {% for field in visibility_form %}
+                    {% if field.name != "is_active" %}
+                    <label class="flex items-center gap-3 cursor-pointer">
+                        {{ field }}
+                        <span class="text-sm">{{ field.label }}</span>
+                    </label>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+
+            <button name="save_visibility" type="submit"
+                    class="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition text-sm font-medium">
+                Save Visibility Settings
+            </button>
+        </form>
+    </div>
+    {% endif %}
+
+    <div>
+        <a href="{% url 'radio_detail' radio.slug %}" class="text-sm text-blue-600 hover:underline">&larr; Back to {{ radio.name }}</a>
+    </div>
+
+</div>
+{% endblock %}

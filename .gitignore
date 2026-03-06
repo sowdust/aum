@@ -6,6 +6,9 @@ __pycache__
 db.sqlite3
 media
 
+# Claude
+CLAUDE.md
+
 # Backup files # 
 *.bak 
 
