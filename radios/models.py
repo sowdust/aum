@@ -50,6 +50,13 @@ class GlobalPipelineSettings(models.Model):
         default=True,
         help_text="Globally enable/disable LLM summarization.",
     )
+    proxy_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="",
+        help_text="Global proxy URL for stream recording (e.g. http://proxy:8080 or socks5://proxy:1080). "
+                  "Used by sources with proxy_mode='global'.",
+    )
 
     class Meta:
         verbose_name = "Global Pipeline Settings"
@@ -102,6 +109,25 @@ class BaseAudioSource(models.Model):
         default=0,
         help_text="Hour (0-23) in local time to stop recording. 0/0 = 24/7.",
     )
+    PROXY_MODE_CHOICES = [
+        ("none", "No Proxy"),
+        ("global", "Use Global Proxy"),
+        ("custom", "Custom Proxy"),
+    ]
+    proxy_mode = models.CharField(
+        max_length=10,
+        choices=PROXY_MODE_CHOICES,
+        default="none",
+        help_text="'none' = direct connection, 'global' = use the global proxy, "
+                  "'custom' = use this source's own proxy_url.",
+    )
+    proxy_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="",
+        help_text="Proxy URL for this source (only used when proxy_mode='custom'). "
+                  "e.g. http://proxy:8080 or socks5://proxy:1080",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -150,6 +176,16 @@ class BaseAudioSource(models.Model):
             if is_unique(slug_candidate):
                 return slug_candidate
             counter += 1
+
+    def get_effective_proxy_url(self) -> str:
+        """
+        Return the proxy URL to use for recording, or empty string for direct connection.
+        """
+        if self.proxy_mode == "global":
+            return GlobalPipelineSettings.get_settings().proxy_url
+        elif self.proxy_mode == "custom":
+            return self.proxy_url
+        return ""
 
     def save(self, *args, **kwargs):
         if not self.slug:
@@ -361,6 +397,8 @@ class TranscriptionSegment(models.Model):
     start_offset = models.FloatField(help_text="Seconds from recording start_time")
     end_offset = models.FloatField(help_text="Seconds from recording start_time")
     text = models.TextField(blank=True, default="")
+    text_english = models.TextField(blank=True, default="",
+        help_text="English translation when original text is non-English; empty if already English.")
     confidence = models.FloatField(default=0.0)
     language = models.CharField(max_length=10, blank=True, default="")
     song_title = models.CharField(max_length=255, blank=True, default="")

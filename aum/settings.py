@@ -220,7 +220,7 @@ SEGMENT_MIN_DURATION = 15.0
 SILENCE_THRESHOLD_DB = -40      # dB — below this = silence (vs music)
 VAD_AGGRESSIVENESS = 2          # webrtcvad 0 (permissive) to 3 (strict)
 
-# Transcription backend: "local" (faster-whisper) or "api" (OpenAI Whisper)
+# Transcription backend: "local" (faster-whisper), "openai" (OpenAI Whisper API), or "anthropic" (Claude audio)
 TRANSCRIPTION_BACKEND = "local"
 WHISPER_MODEL_SIZE = "medium"   # tiny | base | small | medium | large-v3
 WHISPER_DEVICE = "cpu"          # cpu | cuda
@@ -235,4 +235,8 @@ LLM_API_KEY = os.environ.get("LLM_API_KEY", "") or os.environ.get("OPENAI_API_KE
 
 # AcoustID song identification (free — https://acoustid.org/)
 ACOUSTID_API_KEY = os.environ.get("ACOUSTID_API_KEY", "")
+
+# Anthropic Claude API (used for "anthropic" transcription backend + LLM provider)
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+TRANSCRIPTION_LLM_MODEL = "claude-sonnet-4-20250514"
 ANALYZE_POLL_INTERVAL = 30   # seconds between daemon polling cycles

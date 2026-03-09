@@ -1,6 +1,6 @@
 """
 Daemon that continuously processes new Recording objects through the
-analysis pipeline: segmentation → fingerprinting.
+analysis pipeline: segmentation → fingerprinting → transcription.
 
 Usage
 -----
@@ -20,12 +20,13 @@ from django.utils import timezone
 
 from radios.models import Recording, TranscriptionSegment
 from radios.analysis.fingerprinter import fingerprint_segment
+from radios.analysis.transcriber import transcribe_segment
 
 logger = logging.getLogger("broadcast_analysis")
 
 
 class Command(BaseCommand):
-    help = "Continuously analyse pending recordings (segmentation + fingerprinting)."
+    help = "Continuously analyse pending recordings (segmentation + fingerprinting + transcription)."
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -183,6 +184,50 @@ def _process(recording: Recording) -> None:
                         )
         else:
             logger.info("[%s] Fingerprinting stage inactive — skipping.", recording.id)
+
+        # ----------------------------------------------------------------
+        # Stage 3: Transcription
+        # ----------------------------------------------------------------
+        if stream.is_stage_active("transcription"):
+            recording.analysis_status = "transcribing"
+            recording.save(update_fields=["analysis_status"])
+
+            backend = getattr(settings, "TRANSCRIPTION_BACKEND", "local")
+            source = stream.source
+            language_hint = getattr(source, "languages", "") or ""
+
+            speech_segments = list(
+                recording.segments.filter(
+                    segment_type__in=["speech", "speech_over_music"]
+                )
+            )
+            logger.info(
+                "[%s] Transcribing %d speech segment(s) (backend=%s)...",
+                recording.id, len(speech_segments), backend,
+            )
+            for seg in speech_segments:
+                result = transcribe_segment(
+                    file_path, seg.start_offset, seg.end_offset,
+                    backend, language_hint,
+                )
+                if result:
+                    seg.text = result.text
+                    seg.text_english = result.text_english
+                    seg.language = result.language
+                    seg.confidence = result.confidence
+                    seg.save(update_fields=[
+                        "text", "text_english", "language", "confidence",
+                    ])
+                    logger.info(
+                        "[%s] Transcribed segment [%.1f-%.1fs]: lang=%s, %d chars",
+                        recording.id, seg.start_offset, seg.end_offset,
+                        result.language, len(result.text),
+                    )
+
+            recording.analysis_status = "transcribed"
+            recording.save(update_fields=["analysis_status"])
+        else:
+            logger.info("[%s] Transcription stage inactive — skipping.", recording.id)
 
         # ----------------------------------------------------------------
         # Done

@@ -11,4 +11,4 @@ inaSpeechSegmenter # CNN-based speech/music/noise segmentation for broadcast aud
 faster-whisper     # Local speech transcription (CPU or GPU)
 pyacoustid         # AcoustID song identification (needs fpcalc binary)
 openai             # API transcription fallback + LLM summarisation
-# anthropic        # Alternative LLM provider (uncomment if preferred)
+#anthropic          # Claude API for audio transcription + LLM provider

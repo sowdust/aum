@@ -4,10 +4,16 @@
 *.pyc
 __pycache__
 db.sqlite3
+
 media
+radios/tests/test_files/
 
 # Claude
 CLAUDE.md
+
+
+appunti.txt
+nohup.out
 
 # Backup files # 
 *.bak 

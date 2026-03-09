@@ -76,6 +76,13 @@ class GlobalPipelineSettingsAdmin(admin.ModelAdmin):
                 "settings and disables all downstream stages too."
             ),
         }),
+        ("Proxy", {
+            "fields": ["proxy_url"],
+            "description": (
+                "Global proxy for stream recording. Sources with proxy_mode='global' will use this URL. "
+                "Example: http://proxy:8080 or socks5://proxy:1080"
+            ),
+        }),
     ]
 
     def has_add_permission(self, request):
@@ -93,18 +100,41 @@ class GlobalPipelineSettingsAdmin(admin.ModelAdmin):
 
 @admin.register(AudioFeed)
 class AudioFeedAdmin(admin.ModelAdmin):
-    list_display = ("name", "feed_type", "country", "city", "timezone")
+    list_display = ("name", "feed_type", "country", "city", "timezone", "proxy_mode")
     search_fields = ("name", "city", "description")
     prepopulated_fields = {"slug": ("name",)}
-    list_filter = ("feed_type", "country", "timezone")
+    list_filter = ("feed_type", "country", "timezone", "proxy_mode")
     inlines = [StreamInline]
+    fieldsets = [
+        (None, {"fields": [
+            "name", "slug", "description", "feed_type",
+            "country", "city", "latitude", "longitude", "languages", "website",
+            "frequencies", "show_archive", "timezone",
+            "recording_start_hour", "recording_end_hour",
+        ]}),
+        ("Proxy Settings", {
+            "fields": ["proxy_mode", "proxy_url"],
+            "description": (
+                "'No Proxy' = direct connection. 'Use Global Proxy' = use the URL from Global Pipeline Settings. "
+                "'Custom Proxy' = use the proxy URL specified below."
+            ),
+        }),
+    ]
 
 
 @admin.register(TranscriptionSegment)
 class TranscriptionSegmentAdmin(admin.ModelAdmin):
-    list_display = ("recording", "segment_type", "start_offset", "end_offset", "language", "song_artist", "song_title")
+    list_display = (
+        "recording", "segment_type", "start_offset", "end_offset",
+        "language", "has_transcription", "song_artist", "song_title",
+    )
     list_filter = ("segment_type", "language")
-    search_fields = ("text", "song_title", "song_artist")
+    search_fields = ("text", "text_english", "song_title", "song_artist")
+    readonly_fields = ("recording", "segment_type", "start_offset", "end_offset")
+
+    @admin.display(boolean=True, description="Transcribed")
+    def has_transcription(self, obj):
+        return bool(obj.text)
 
 
 @admin.register(ChunkSummary)
@@ -138,11 +168,28 @@ class RadioAdminForm(forms.ModelForm):
 @admin.register(Radio)
 class RadioAdmin(admin.ModelAdmin):
     form = RadioAdminForm
-    list_display = ("name", "country", "city", "timezone", "recording_start_hour", "recording_end_hour")
+    list_display = ("name", "country", "city", "timezone", "proxy_mode", "recording_start_hour", "recording_end_hour")
     search_fields = ("name", "city", "description")
     prepopulated_fields = {"slug": ("name",)}
-    list_filter = ("country", "timezone")
+    list_filter = ("country", "timezone", "proxy_mode")
     inlines = [StreamInline]
+    fieldsets = [
+        (None, {"fields": [
+            "name", "slug", "description", "logo", "motto", "since", "until",
+            "country", "city", "latitude", "longitude", "languages", "website",
+            "frequencies", "show_archive", "timezone",
+            "recording_start_hour", "recording_end_hour",
+            "is_fm", "is_am", "is_dab", "is_sw", "is_web",
+            "contact_email",
+        ]}),
+        ("Proxy Settings", {
+            "fields": ["proxy_mode", "proxy_url"],
+            "description": (
+                "'No Proxy' = direct connection. 'Use Global Proxy' = use the URL from Global Pipeline Settings. "
+                "'Custom Proxy' = use the proxy URL specified below."
+            ),
+        }),
+    ]
 
 """
 @admin.register(StreamEndpoint)

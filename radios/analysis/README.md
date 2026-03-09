@@ -206,9 +206,9 @@ python manage.py shell -c "
 from radios.models import Recording
 from radios.analysis.segmenter import segment_audio
 
-rec = Recording.objects.order_by('-created_at').first()
-print(f'Analysing: {rec.audio_file.path}')
-segments = segment_audio(rec.audio_file.path)
+rec = Recording.objects.order_by('-start_time').first()
+print(f'Analysing: {rec.file.path}')
+segments = segment_audio(rec.file.path)
 
 for s in segments:
     dur = s.end - s.start
@@ -512,11 +512,72 @@ Per-type accuracy:
 
 ---
 
+## Transcription
+
+The transcriber converts speech segments to text. It supports three backends:
+
+| Backend | Engine | Requires | Best for |
+|---------|--------|----------|----------|
+| `local` | faster-whisper | No API key | Development, offline, privacy-sensitive |
+| `openai` | OpenAI Whisper API | `OPENAI_API_KEY` | High accuracy, cloud OK |
+| `anthropic` | Claude audio input | `ANTHROPIC_API_KEY` | Multilingual, includes translation |
+
+### Settings
+
+```python
+# In aum/settings.py:
+TRANSCRIPTION_BACKEND = "local"           # "local", "openai", or "anthropic"
+WHISPER_MODEL_SIZE = "medium"             # faster-whisper model (local backend)
+WHISPER_DEVICE = "cpu"                    # "cpu" or "cuda" (local backend)
+WHISPER_COMPUTE_TYPE = "int8"             # "int8", "float16", "float32"
+OPENAI_API_KEY = ""                       # For openai backend
+ANTHROPIC_API_KEY = ""                    # For anthropic backend
+TRANSCRIPTION_LLM_MODEL = "claude-sonnet-4-20250514"  # Claude model (anthropic backend)
+```
+
+### How it works
+
+1. Speech and speech-over-music segments (from the segmenter) are fed to the transcriber.
+2. Segment edges are trimmed by 2s to avoid bleed-over from adjacent segments.
+3. Segments longer than 10 minutes are split into overlapping sub-chunks.
+4. The chosen backend transcribes the audio and detects the language.
+5. If the detected language is not English, a translation is generated.
+6. Results are stored on `TranscriptionSegment` (`text`, `text_english`, `language`, `confidence`).
+
+### Running
+
+Transcription runs as part of the `analyze_recordings` pipeline:
+
+```bash
+python manage.py analyze_recordings --once
+```
+
+It activates when the `transcription` stage is enabled (both globally and per-stream).
+
+### Testing
+
+```bash
+# Local backend (default, no API key needed)
+python manage.py test radios.tests.test_transcription
+
+# Anthropic backend
+TRANSCRIPTION_BACKEND=anthropic ANTHROPIC_API_KEY=key \
+    python manage.py test radios.tests.test_transcription
+
+# OpenAI backend
+TRANSCRIPTION_BACKEND=openai OPENAI_API_KEY=key \
+    python manage.py test radios.tests.test_transcription
+```
+
+---
+
 ## Files
 
 | File                        | Purpose                                                          |
 |-----------------------------|------------------------------------------------------------------|
 | `segmenter.py`              | Current segmenter (inaSpeechSegmenter CNN)                       |
+| `transcriber.py`            | Speech transcription (local/OpenAI/Anthropic backends)           |
+| `fingerprinter.py`          | Music identification via AcoustID/Chromaprint                    |
 | `tune.py`                   | Evaluate boundary accuracy + grid search over tuning parameters  |
 | `audacity_to_labels.py`     | Convert Audacity label export to `labels.json` for `tune.py`     |
 | `segmenter_webrtcvad.py`    | Previous segmenter (webrtcvad + 4 Hz modulation). Rollback only. |

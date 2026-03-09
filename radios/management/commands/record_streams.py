@@ -201,12 +201,21 @@ class RecorderWorker:
         temp_path = os.path.join(tempfile.gettempdir(), unique_name)
         self.current_tempfile_path = temp_path
 
+        # Resolve proxy URL from the source (Radio or AudioFeed)
+        proxy_url = self.stream.source.get_effective_proxy_url() if self.stream.source else ""
+
         # Build ffmpeg command
         cmd = [
             "ffmpeg",
             "-y",  # auto-overwrite if file somehow exists
             "-hide_banner",
             "-loglevel", "warning",
+        ]
+
+        if proxy_url:
+            cmd += ["-http_proxy", proxy_url]
+
+        cmd += [
             "-i", self.stream.url,
             "-vn",
             "-acodec", "copy",
@@ -218,7 +227,11 @@ class RecorderWorker:
             temp_path,
         ]
 
-        logger.info("Worker[%s]: starting ffmpeg -> %s", self.stream.name, temp_path)
+        logger.info(
+            "Worker[%s]: starting ffmpeg -> %s%s",
+            self.stream.name, temp_path,
+            f" (via proxy)" if proxy_url else "",
+        )
         try:
             self.current_process = subprocess.Popen(
                 cmd,
