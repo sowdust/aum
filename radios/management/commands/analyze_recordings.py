@@ -25,6 +25,10 @@ from radios.analysis.transcriber import transcribe_segment
 logger = logging.getLogger("broadcast_analysis")
 
 
+class _ShutdownRequested(Exception):
+    """Raised inside _process when a shutdown signal is received."""
+
+
 class Command(BaseCommand):
     help = "Continuously analyse pending recordings (segmentation + fingerprinting + transcription)."
 
@@ -51,8 +55,9 @@ class Command(BaseCommand):
 
         def shutdown(signum, frame):
             nonlocal running
-            logger.info("Shutdown signal (%s) received, will stop after current recording.", signum)
             running = False
+            self.stdout.write("\nShutdown signal received — stopping as soon as possible.")
+            logger.info("Shutdown signal (%s) received.", signum)
 
         signal.signal(signal.SIGINT, shutdown)
         signal.signal(signal.SIGTERM, shutdown)
@@ -80,24 +85,38 @@ class Command(BaseCommand):
             for recording in recordings:
                 if not running:
                     break
-                _process(recording)
+                _process(recording, should_stop=lambda: not running)
 
             if once or not running:
                 break
 
-            time.sleep(poll_interval)
+            # Sleep in 1-second steps so Ctrl+C is noticed promptly.
+            # time.sleep() restarts after signal handlers (PEP 475), so a
+            # single long sleep would block shutdown for the full interval.
+            deadline = time.monotonic() + poll_interval
+            while running and time.monotonic() < deadline:
+                time.sleep(1)
 
         logger.info("Analysis daemon exited cleanly.")
 
 
-def _process(recording: Recording) -> None:
+def _process(recording: Recording, should_stop) -> None:
     """
-    Run segmentation + fingerprinting on a single Recording.
+    Run segmentation + fingerprinting + transcription on a single Recording.
 
-    Sets analysis_status to 'transcribing' while in progress, then 'done'
-    on success or 'failed' on any unhandled exception.  Never raises —
-    the daemon loop must not crash.
+    Sets analysis_status to 'analysing' / 'transcribing' while in progress,
+    then 'done' on success or 'failed' on any unhandled exception.
+
+    If a shutdown is requested mid-process, all partial work (segments) is
+    discarded and the recording is reset to 'pending' so it will be retried
+    on the next run.  Never raises — the daemon loop must not crash.
     """
+
+    def check():
+        """Raise _ShutdownRequested if a shutdown has been requested."""
+        if should_stop():
+            raise _ShutdownRequested()
+
     logger.info("Processing recording %s (%s)", recording.id, recording)
 
     # Mark as in-progress
@@ -122,6 +141,9 @@ def _process(recording: Recording) -> None:
         # Stage 1: Segmentation
         # ----------------------------------------------------------------
         if stream.is_stage_active("segmentation"):
+            # Check before starting — segmentation runs a TF model in C and
+            # cannot be interrupted once underway.
+            check()
             logger.info("[%s] Running segmentation...", recording.id)
             from radios.analysis.segmenter import segment_audio
 
@@ -166,6 +188,7 @@ def _process(recording: Recording) -> None:
                     recording.id, len(music_segments),
                 )
                 for seg in music_segments:
+                    check()
                     result = fingerprint_segment(
                         file_path,
                         seg.start_offset,
@@ -192,7 +215,6 @@ def _process(recording: Recording) -> None:
             recording.analysis_status = "transcribing"
             recording.save(update_fields=["analysis_status"])
 
-            backend = getattr(settings, "TRANSCRIPTION_BACKEND", "local")
             source = stream.source
             language_hint = getattr(source, "languages", "") or ""
 
@@ -202,13 +224,14 @@ def _process(recording: Recording) -> None:
                 )
             )
             logger.info(
-                "[%s] Transcribing %d speech segment(s) (backend=%s)...",
-                recording.id, len(speech_segments), backend,
+                "[%s] Transcribing %d speech segment(s)...",
+                recording.id, len(speech_segments),
             )
             for seg in speech_segments:
+                check()
                 result = transcribe_segment(
                     file_path, seg.start_offset, seg.end_offset,
-                    backend, language_hint,
+                    language_hint=language_hint,
                 )
                 if result:
                     seg.text = result.text
@@ -236,6 +259,15 @@ def _process(recording: Recording) -> None:
         recording.analysis_completed_at = timezone.now()
         recording.save(update_fields=["analysis_status", "analysis_completed_at"])
         logger.info("[%s] Analysis complete.", recording.id)
+
+    except _ShutdownRequested:
+        # Discard any partial work so the recording is cleanly re-processable.
+        recording.segments.all().delete()
+        recording.analysis_status = "pending"
+        recording.analysis_started_at = None
+        recording.analysis_error = ""
+        recording.save(update_fields=["analysis_status", "analysis_started_at", "analysis_error"])
+        logger.info("[%s] Shutdown mid-analysis — recording reset to pending.", recording.id)
 
     except Exception:
         tb = traceback.format_exc()

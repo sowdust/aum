@@ -23,7 +23,7 @@ import django.test
 from django.conf import settings
 from django.test import tag
 
-from radios.tests import fmt_dur, fmt_time
+from radios.tests import fmt_dur, fmt_time, print_test_db_location
 
 _DEFAULT_MP3    = Path(__file__).parent / "test_files" / "test_1.mp3"
 _DEFAULT_LABELS = Path(__file__).parent / "test_files" / "test_1.txt"
@@ -52,6 +52,7 @@ class SegmentationTest(django.test.SimpleTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
+        print_test_db_location()
         if TEST_MP3.exists():
             from radios.analysis.segmenter import segment_audio
             save_dir = _segments_save_dir() if SAVE_SEGMENTS else None
@@ -116,6 +117,7 @@ class SegmentationTest(django.test.SimpleTestCase):
         segments = self._segments
 
         print(f"\n=== Ground Truth vs Predicted ===")
+        print(f"  Labels loaded from:        {TEST_LABELS}")
         header = f"{'GT type':<10}  {'GT start':>7}  {'GT end':>7}  {'GT dur':>7}  {'Best match':<18}  {'Overlap':>7}"
         print(header)
         print("-" * len(header))

@@ -22,7 +22,7 @@ import django.test
 from django.conf import settings
 from django.test import tag
 
-from radios.tests import fmt_dur, fmt_time
+from radios.tests import fmt_dur, fmt_time, print_test_db_location
 
 _DEFAULT_MP3    = Path(__file__).parent / "test_files" / "test_1.mp3"
 _DEFAULT_LABELS = Path(__file__).parent / "test_files" / "test_1.txt"
@@ -38,6 +38,11 @@ def _load_ground_truth():
 
 @tag("slow", "integration")
 class FingerprintingTest(django.test.SimpleTestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        print_test_db_location()
 
     def _skip_if_no_file(self):
         if not TEST_MP3.exists():
@@ -102,6 +107,11 @@ class FingerprintSingleFileTest(django.test.SimpleTestCase):
         TEST_MP3=/path/to/song.mp3 ACOUSTID_API_KEY=your_key \\
             python manage.py test radios.tests.test_fingerprinting.FingerprintSingleFileTest
     """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        print_test_db_location()
 
     def _skip_if_no_file(self):
         if not TEST_MP3.exists():

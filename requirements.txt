@@ -12,3 +12,4 @@ faster-whisper     # Local speech transcription (CPU or GPU)
 pyacoustid         # AcoustID song identification (needs fpcalc binary)
 openai             # API transcription fallback + LLM summarisation
 #anthropic          # Claude API for audio transcription + LLM provider
+ollama             # Local LLM summarisation via Ollama

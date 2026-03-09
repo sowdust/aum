@@ -6,7 +6,7 @@ from django import forms
 from .models import (
     Radio, AudioFeed, Recording, Stream, RadioUser,
     TranscriptionSegment, ChunkSummary, DailySummary, FeedAnomaly,
-    GlobalPipelineSettings,
+    GlobalPipelineSettings, TranscriptionSettings, SummarizationSettings,
 )
 
 admin.site.register(Recording)
@@ -96,6 +96,104 @@ class GlobalPipelineSettingsAdmin(admin.ModelAdmin):
         from django.urls import reverse
         GlobalPipelineSettings.get_settings()  # ensure row exists
         return redirect(reverse("admin:radios_globalpipelinesettings_change", args=[1]))
+
+
+@admin.register(TranscriptionSettings)
+class TranscriptionSettingsAdmin(admin.ModelAdmin):
+    fieldsets = [
+        ("Backend", {
+            "fields": ["backend"],
+            "description": "Select which backend to use for speech transcription.",
+        }),
+        ("Local Backend (faster-whisper)", {
+            "fields": ["local_model_size", "local_device", "local_compute_type"],
+            "description": (
+                "Used when backend is 'Local'. faster-whisper runs entirely on this machine. "
+                "Larger models are more accurate but slower and require more RAM."
+            ),
+        }),
+        ("OpenAI Whisper API", {
+            "classes": ("collapse",),
+            "fields": ["openai_model"],
+            "description": "API key must be set in the OPENAI_API_KEY environment variable.",
+        }),
+        ("Anthropic (Claude)", {
+            "classes": ("collapse",),
+            "fields": ["anthropic_model"],
+            "description": "API key must be set in the ANTHROPIC_API_KEY environment variable.",
+        }),
+        ("Ollama (local or cloud)", {
+            "classes": ("collapse",),
+            "fields": ["ollama_model", "ollama_base_url"],
+            "description": (
+                "Ollama's OpenAI-compatible transcription API. "
+                "For a local instance leave the URL as http://localhost:11434 — no API key needed. "
+                "For ollama.com cloud, set the URL to https://api.ollama.com and set the "
+                "OLLAMA_API_KEY environment variable."
+            ),
+        }),
+    ]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def changelist_view(self, request, extra_context=None):
+        from django.shortcuts import redirect
+        from django.urls import reverse
+        TranscriptionSettings.get_settings()
+        return redirect(reverse("admin:radios_transcriptionsettings_change", args=[1]))
+
+
+@admin.register(SummarizationSettings)
+class SummarizationSettingsAdmin(admin.ModelAdmin):
+    fieldsets = [
+        ("Backend", {
+            "fields": ["backend"],
+            "description": "Select which LLM backend to use for summarization.",
+        }),
+        ("Local Ollama", {
+            "fields": ["local_ollama_model", "local_ollama_url"],
+            "description": "Ollama running locally. No API key needed.",
+        }),
+        ("Cloud Ollama", {
+            "classes": ("collapse",),
+            "fields": ["cloud_ollama_model", "cloud_ollama_url"],
+            "description": "ollama.com cloud API. Set OLLAMA_API_KEY environment variable.",
+        }),
+        ("OpenAI", {
+            "classes": ("collapse",),
+            "fields": ["openai_model"],
+            "description": "API key must be set in the OPENAI_API_KEY environment variable.",
+        }),
+        ("Anthropic (Claude)", {
+            "classes": ("collapse",),
+            "fields": ["anthropic_model"],
+            "description": "API key must be set in the ANTHROPIC_API_KEY environment variable.",
+        }),
+        ("Prompts", {
+            "fields": ["prompt_chunk", "prompt_daily"],
+            "description": (
+                "Edit the prompts sent to the LLM. "
+                "Placeholders — chunk prompt: {content}, {language_hint}; "
+                "daily prompt: {content}."
+            ),
+        }),
+    ]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def changelist_view(self, request, extra_context=None):
+        from django.shortcuts import redirect
+        from django.urls import reverse
+        SummarizationSettings.get_settings()
+        return redirect(reverse("admin:radios_summarizationsettings_change", args=[1]))
 
 
 @admin.register(AudioFeed)

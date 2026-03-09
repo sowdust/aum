@@ -29,7 +29,7 @@ _MIN_SCORE = 0.5
 
 # Segments shorter than this (seconds) are too short for a reliable
 # Chromaprint fingerprint and are skipped.
-_MIN_DURATION = 10.0
+_MIN_DURATION = 30.0
 
 # Cap the audio sent to AcoustID — only the first 2 minutes are needed
 # for reliable identification, and this keeps ffmpeg extraction fast.

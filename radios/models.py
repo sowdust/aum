@@ -414,11 +414,257 @@ class TranscriptionSegment(models.Model):
         return f"{self.segment_type} [{self.start_offset:.1f}-{self.end_offset:.1f}s]"
 
 
+_DEFAULT_CHUNK_PROMPT = """\
+You are analysing a radio broadcast segment. Below are transcripts of speech from a single recording chunk.{language_hint}
+
+Return ONLY valid JSON with these fields:
+- "summary": 2-4 sentences summarising what was talked about
+- "tags": list of up to 15 lowercase keyword tags (topics, people, places, events, themes — no duplicates)
+
+Transcripts:
+{content}
+
+Respond with ONLY the JSON object, no markdown fences or explanation."""
+
+_DEFAULT_DAILY_PROMPT = """\
+You are analysing a full day of radio broadcasts. Below are summaries of individual recording chunks from the same radio station.
+
+Return ONLY valid JSON with these fields:
+- "summary": 3-5 sentences summarising the main themes and events across the day
+- "tags": list of up to 15 lowercase keyword tags (most important topics, people, places, events — no duplicates)
+
+Chunk summaries:
+{content}
+
+Respond with ONLY the JSON object, no markdown fences or explanation."""
+
+
+class TranscriptionSettings(models.Model):
+    """
+    Singleton (pk=1). Controls the transcription pipeline stage:
+    backend selection and model parameters.
+    API keys are read from environment variables (OPENAI_API_KEY, ANTHROPIC_API_KEY).
+    """
+    BACKEND_CHOICES = [
+        ("local", "Local (faster-whisper)"),
+        ("openai", "OpenAI Whisper API"),
+        ("anthropic", "Anthropic (Claude)"),
+        ("ollama", "Ollama (local or cloud)"),
+    ]
+    MODEL_SIZE_CHOICES = [
+        ("tiny", "Tiny — fastest, least accurate"),
+        ("base", "Base"),
+        ("small", "Small"),
+        ("medium", "Medium (recommended)"),
+        ("large-v2", "Large v2"),
+        ("large-v3", "Large v3 — slowest, most accurate"),
+    ]
+    DEVICE_CHOICES = [
+        ("cpu", "CPU"),
+        ("cuda", "CUDA (GPU)"),
+        ("auto", "Auto-detect"),
+    ]
+    COMPUTE_TYPE_CHOICES = [
+        ("int8", "int8 — fastest, good for CPU"),
+        ("float16", "float16 — recommended for GPU"),
+        ("float32", "float32 — highest accuracy"),
+    ]
+
+    backend = models.CharField(
+        max_length=20, choices=BACKEND_CHOICES, default="local",
+        help_text="Which backend to use for speech transcription.",
+    )
+
+    # --- Local (faster-whisper) ---
+    local_model_size = models.CharField(
+        max_length=20, choices=MODEL_SIZE_CHOICES, default="medium",
+        help_text="Whisper model size. Larger models are more accurate but require more RAM and time.",
+    )
+    local_device = models.CharField(
+        max_length=10, choices=DEVICE_CHOICES, default="cpu",
+        help_text="Device to run faster-whisper on.",
+    )
+    local_compute_type = models.CharField(
+        max_length=10, choices=COMPUTE_TYPE_CHOICES, default="int8",
+        help_text="Numeric precision for faster-whisper inference.",
+    )
+
+    # --- OpenAI Whisper API ---
+    openai_model = models.CharField(
+        max_length=100, default="whisper-1",
+        help_text="OpenAI Whisper model name. API key must be set in the OPENAI_API_KEY environment variable.",
+    )
+
+    # --- Anthropic ---
+    anthropic_model = models.CharField(
+        max_length=100, default="claude-sonnet-4-20250514",
+        help_text="Claude model ID for audio transcription. API key must be set in the ANTHROPIC_API_KEY environment variable.",
+    )
+
+    # --- Ollama ---
+    ollama_model = models.CharField(
+        max_length=100, default="whisper",
+        help_text=(
+            "Ollama model name for transcription (e.g. 'whisper'). "
+            "For local instances no key is needed; for ollama.com cloud set OLLAMA_API_KEY."
+        ),
+    )
+    ollama_base_url = models.URLField(
+        max_length=500, default="http://localhost:11434",
+        help_text=(
+            "Base URL of the Ollama server for audio transcription. "
+            "Use 'http://localhost:11434' for a local instance. "
+            "Note: Ollama cloud (ollama.com) does not support audio transcription."
+        ),
+    )
+
+    class Meta:
+        verbose_name = "Transcription Settings"
+        verbose_name_plural = "Transcription Settings"
+
+    def save(self, *args, **kwargs):
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        pass
+
+    @classmethod
+    def get_settings(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+    def __str__(self):
+        return "Transcription Settings"
+
+
+class SummarizationSettings(models.Model):
+    """
+    Singleton (pk=1). Controls the summarization pipeline stage:
+    backend selection, model parameters, and editable prompts.
+    API keys are read from environment variables (OPENAI_API_KEY, ANTHROPIC_API_KEY, OLLAMA_API_KEY).
+
+    Prompt templates support these placeholders:
+      {content}        — transcript text (chunk prompt) or chunk summaries (daily prompt)
+      {language_hint}  — language sentence inserted when a language hint is available, else empty
+    """
+    BACKEND_CHOICES = [
+        ("local_ollama", "Local Ollama"),
+        ("cloud_ollama", "Cloud Ollama"),
+        ("openai", "OpenAI"),
+        ("anthropic", "Anthropic (Claude)"),
+    ]
+
+    backend = models.CharField(
+        max_length=20, choices=BACKEND_CHOICES, default="local_ollama",
+        help_text="Which LLM backend to use for summarization.",
+    )
+
+    # --- Local Ollama (Python client, no API key needed) ---
+    local_ollama_model = models.CharField(
+        max_length=100, default="llama3.2",
+        help_text="Ollama model name, e.g. 'llama3.2', 'mistral', 'phi3'.",
+    )
+    local_ollama_url = models.URLField(
+        max_length=500, default="http://localhost:11434",
+        help_text="Base URL of the local Ollama server.",
+    )
+
+    # --- Cloud Ollama (OpenAI-compatible API, OLLAMA_API_KEY required) ---
+    cloud_ollama_model = models.CharField(
+        max_length=100, default="llama3.2",
+        help_text="Ollama model name for the cloud API (e.g. 'llama3.2', 'mistral'). Set OLLAMA_API_KEY.",
+    )
+    cloud_ollama_url = models.URLField(
+        max_length=500, default="https://ollama.com",
+        help_text="Base URL of the Ollama cloud API (https://ollama.com).",
+    )
+
+    # --- OpenAI ---
+    openai_model = models.CharField(
+        max_length=100, default="gpt-4o-mini",
+        help_text="OpenAI model name. API key must be set in the OPENAI_API_KEY environment variable.",
+    )
+
+    # --- Anthropic ---
+    anthropic_model = models.CharField(
+        max_length=100, default="claude-haiku-4-5-20251001",
+        help_text="Claude model ID. API key must be set in the ANTHROPIC_API_KEY environment variable.",
+    )
+
+    # --- Prompts ---
+    prompt_chunk = models.TextField(
+        default=_DEFAULT_CHUNK_PROMPT,
+        help_text=(
+            "Prompt template for per-chunk summaries. "
+            "Placeholders: {content} (transcripts), {language_hint} (language sentence or empty)."
+        ),
+    )
+    prompt_daily = models.TextField(
+        default=_DEFAULT_DAILY_PROMPT,
+        help_text=(
+            "Prompt template for daily summaries. "
+            "Placeholders: {content} (list of chunk summaries)."
+        ),
+    )
+
+    class Meta:
+        verbose_name = "Summarization Settings"
+        verbose_name_plural = "Summarization Settings"
+
+    def save(self, *args, **kwargs):
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        pass  # Prevent deletion
+
+    @classmethod
+    def get_settings(cls):
+        """Return the singleton row, creating it with defaults if absent."""
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+    def __str__(self):
+        return "Summarization Settings"
+
+
+class Tag(models.Model):
+    """
+    A normalized keyword/topic tag extracted from summarized recordings.
+    Tags are always lowercase and slugified for consistent matching.
+    """
+    name = models.CharField(max_length=100, unique=True, db_index=True)
+    slug = models.SlugField(max_length=100, unique=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def save(self, *args, **kwargs):
+        self.name = self.name.lower().strip()
+        if not self.slug:
+            self.slug = slugify(self.name)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.name
+
+    @classmethod
+    def get_or_create_normalized(cls, name: str):
+        """Return (tag, created) for a normalized tag name."""
+        normalized = name.lower().strip()
+        slug = slugify(normalized)
+        return cls.objects.get_or_create(slug=slug, defaults={"name": normalized})
+
+
 class ChunkSummary(models.Model):
+    """LLM-generated summary of a single recording chunk, with extracted tags."""
     recording = models.OneToOneField(
         Recording, on_delete=models.CASCADE, related_name="chunk_summary"
     )
     summary_text = models.TextField()
+    tags = models.ManyToManyField(Tag, related_name="chunk_summaries", blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -426,12 +672,14 @@ class ChunkSummary(models.Model):
 
 
 class DailySummary(models.Model):
+    """Aggregated LLM summary for a radio on a given day, with extracted tags."""
     radio = models.ForeignKey(
         Radio, on_delete=models.CASCADE, related_name="daily_summaries"
     )
     date = models.DateField()
     summary_text = models.TextField()
     chunk_count = models.PositiveIntegerField(default=0)
+    tags = models.ManyToManyField(Tag, related_name="daily_summaries", blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

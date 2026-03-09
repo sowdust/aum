@@ -142,6 +142,9 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
+        'TEST': {
+            'NAME': BASE_DIR / 'testdb.sqlite3',
+        },
     }
 }
 
@@ -238,5 +241,8 @@ ACOUSTID_API_KEY = os.environ.get("ACOUSTID_API_KEY", "")
 
 # Anthropic Claude API (used for "anthropic" transcription backend + LLM provider)
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+
+# Ollama API key (required only for ollama.com cloud; leave empty for local Ollama)
+OLLAMA_API_KEY = os.environ.get("OLLAMA_API_KEY", "")
 TRANSCRIPTION_LLM_MODEL = "claude-sonnet-4-20250514"
 ANALYZE_POLL_INTERVAL = 30   # seconds between daemon polling cycles

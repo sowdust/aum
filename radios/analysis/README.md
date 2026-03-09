@@ -7,12 +7,13 @@ Audio segmentation and analysis pipeline for AUM radio recordings.
 The segmenter classifies audio into content types so downstream tools know
 what to do with each piece:
 
-| Segment type | Meaning                  | Downstream action           |
-|--------------|--------------------------|------------------------------|
-| `speech`     | Human talking            | Transcribe with Whisper      |
-| `music`      | Instrumental or vocal    | Fingerprint with AcoustID    |
-| `noise`      | Non-speech, non-music    | Skip or flag                 |
-| `noEnergy`   | Dead air / silence       | Skip                         |
+| Segment type        | Meaning                  | Downstream action                          |
+|---------------------|--------------------------|--------------------------------------------|
+| `speech`            | Human talking            | Transcribe → summarize + extract tags      |
+| `speech_over_music` | Talking over music       | Transcribe → summarize + extract tags      |
+| `music`             | Instrumental or vocal    | Fingerprint with AcoustID                  |
+| `noise`             | Non-speech, non-music    | Skip or flag                               |
+| `noEnergy`          | Dead air / silence       | Skip                                       |
 
 The engine is **inaSpeechSegmenter** -- a CNN trained on broadcast radio/TV
 audio by INA (French National Audiovisual Institute).
@@ -519,40 +520,50 @@ The transcriber converts speech segments to text. It supports three backends:
 | Backend | Engine | Requires | Best for |
 |---------|--------|----------|----------|
 | `local` | faster-whisper | No API key | Development, offline, privacy-sensitive |
-| `openai` | OpenAI Whisper API | `OPENAI_API_KEY` | High accuracy, cloud OK |
-| `anthropic` | Claude audio input | `ANTHROPIC_API_KEY` | Multilingual, includes translation |
+| `openai` | OpenAI Whisper API | `OPENAI_API_KEY` env var | High accuracy, cloud OK |
+| `anthropic` | Claude audio input | `ANTHROPIC_API_KEY` env var | Multilingual, includes translation |
 
-### Settings
+### Configuration
 
-```python
-# In aum/settings.py:
-TRANSCRIPTION_BACKEND = "local"           # "local", "openai", or "anthropic"
-WHISPER_MODEL_SIZE = "medium"             # faster-whisper model (local backend)
-WHISPER_DEVICE = "cpu"                    # "cpu" or "cuda" (local backend)
-WHISPER_COMPUTE_TYPE = "int8"             # "int8", "float16", "float32"
-OPENAI_API_KEY = ""                       # For openai backend
-ANTHROPIC_API_KEY = ""                    # For anthropic backend
-TRANSCRIPTION_LLM_MODEL = "claude-sonnet-4-20250514"  # Claude model (anthropic backend)
+All transcription parameters are configured through the Django admin interface under
+**Transcription Settings** (a singleton page, no database knowledge required).
+
+| Setting | Where | Options |
+|---------|-------|---------|
+| Backend | Admin → Transcription Settings | `local`, `openai`, `anthropic` |
+| Local model size | Admin → Transcription Settings | `tiny` … `large-v3` |
+| Local device | Admin → Transcription Settings | `cpu`, `cuda`, `auto` |
+| Local compute type | Admin → Transcription Settings | `int8`, `float16`, `float32` |
+| OpenAI model | Admin → Transcription Settings | e.g. `whisper-1` |
+| Anthropic model | Admin → Transcription Settings | e.g. `claude-sonnet-4-20250514` |
+| API keys | **Environment variables** | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` |
+
+API keys are intentionally **not** stored in the database. Set them as environment
+variables before starting the server or the analysis daemon:
+
+```bash
+export OPENAI_API_KEY=sk-...
+export ANTHROPIC_API_KEY=sk-ant-...
+python manage.py analyze_recordings
 ```
 
 ### How it works
 
 1. Speech and speech-over-music segments (from the segmenter) are fed to the transcriber.
-2. Segment edges are trimmed by 2s to avoid bleed-over from adjacent segments.
+2. Segment edges are trimmed by 2 s to avoid bleed-over from adjacent segments.
 3. Segments longer than 10 minutes are split into overlapping sub-chunks.
 4. The chosen backend transcribes the audio and detects the language.
-5. If the detected language is not English, a translation is generated.
+5. If the detected language is not English, a translation is also generated.
 6. Results are stored on `TranscriptionSegment` (`text`, `text_english`, `language`, `confidence`).
 
 ### Running
 
-Transcription runs as part of the `analyze_recordings` pipeline:
+Transcription runs as part of the `analyze_recordings` pipeline and activates when
+the `transcription` stage is enabled (both globally in admin and per-stream):
 
 ```bash
 python manage.py analyze_recordings --once
 ```
-
-It activates when the `transcription` stage is enabled (both globally and per-stream).
 
 ### Testing
 
@@ -560,14 +571,119 @@ It activates when the `transcription` stage is enabled (both globally and per-st
 # Local backend (default, no API key needed)
 python manage.py test radios.tests.test_transcription
 
-# Anthropic backend
-TRANSCRIPTION_BACKEND=anthropic ANTHROPIC_API_KEY=key \
+# OpenAI backend
+TRANSCRIPTION_BACKEND=openai OPENAI_API_KEY=sk-... \
     python manage.py test radios.tests.test_transcription
 
-# OpenAI backend
-TRANSCRIPTION_BACKEND=openai OPENAI_API_KEY=key \
+# Anthropic backend
+TRANSCRIPTION_BACKEND=anthropic ANTHROPIC_API_KEY=sk-ant-... \
     python manage.py test radios.tests.test_transcription
 ```
+
+`TRANSCRIPTION_BACKEND` overrides the database setting for the duration of the test run.
+
+---
+
+## Summarization
+
+The summarizer produces a short written summary and a set of keyword tags from the
+speech transcripts of each recording chunk. It supports three backends:
+
+| Backend | Engine | Requires | Best for |
+|---------|--------|----------|----------|
+| `local` | Ollama | Ollama running locally | Development, offline, privacy-sensitive |
+| `openai` | OpenAI Chat API | `OPENAI_API_KEY` env var | High quality, cloud OK |
+| `anthropic` | Claude | `ANTHROPIC_API_KEY` env var | High quality, multilingual |
+
+### Configuration
+
+All summarization parameters — including the prompt templates — are configured
+through the Django admin interface under **Summarization Settings**.
+
+| Setting | Where | Notes |
+|---------|-------|-------|
+| Backend | Admin → Summarization Settings | `local`, `openai`, `anthropic` |
+| Ollama model | Admin → Summarization Settings | e.g. `llama3.2`, `mistral`, `phi3` |
+| Ollama URL | Admin → Summarization Settings | Default: `http://localhost:11434` |
+| OpenAI model | Admin → Summarization Settings | e.g. `gpt-4o-mini`, `gpt-4o` |
+| Anthropic model | Admin → Summarization Settings | e.g. `claude-haiku-4-5-20251001` |
+| Chunk prompt | Admin → Summarization Settings | Template for per-recording summaries |
+| Daily prompt | Admin → Summarization Settings | Template for daily aggregate summaries |
+| API keys | **Environment variables** | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` |
+
+#### Prompt placeholders
+
+The prompt templates use Python `.format()` placeholders:
+
+| Placeholder | Available in | Replaced with |
+|-------------|-------------|---------------|
+| `{content}` | Both prompts | Transcript text (chunk) or list of chunk summaries (daily) |
+| `{language_hint}` | Chunk prompt only | ` The content is likely in: it,en.` or empty string |
+
+Prompts can be freely edited in the admin. The defaults ask the LLM to return
+JSON with a `"summary"` field (2-5 sentences) and a `"tags"` list (up to 15
+lowercase keywords).
+
+#### Local backend — Ollama setup
+
+```bash
+# Install Ollama: https://ollama.com
+curl -fsSL https://ollama.com/install.sh | sh
+
+# Pull a model
+ollama pull llama3.2
+
+# Install the Python client
+pip install ollama
+
+# Verify
+ollama list
+```
+
+Ollama runs as a background service on `http://localhost:11434` by default.
+The URL can be changed in admin → Summarization Settings → Ollama URL.
+
+### How it works
+
+1. After transcription, all speech segment texts for a recording are collected.
+2. `summarize_texts()` sends them to the configured LLM and receives a JSON
+   response with a `"summary"` and a `"tags"` list.
+3. A `ChunkSummary` row is created for the recording; tags are stored as `Tag`
+   objects and linked via a many-to-many relationship.
+4. At the end of each day, `summarize_daily_texts()` aggregates the chunk
+   summaries for a radio station into a `DailySummary` with its own tag set.
+5. Tags are normalized to lowercase, deduplicated, and slugified for consistent
+   matching across summaries.
+
+### Running
+
+Summarization runs as part of the `analyze_recordings` pipeline after transcription,
+and activates when the `summarization` stage is enabled:
+
+```bash
+python manage.py analyze_recordings --once
+```
+
+### Testing
+
+```bash
+# Local backend via Ollama (default)
+python manage.py test radios.tests.test_summarization
+
+# OpenAI backend
+SUMMARIZATION_BACKEND=openai OPENAI_API_KEY=sk-... \
+    python manage.py test radios.tests.test_summarization
+
+# Anthropic backend
+SUMMARIZATION_BACKEND=anthropic ANTHROPIC_API_KEY=sk-ant-... \
+    python manage.py test radios.tests.test_summarization
+
+# Provide your own transcript text
+SAMPLE_TRANSCRIPT=/path/to/transcript.txt \
+    python manage.py test radios.tests.test_summarization
+```
+
+`SUMMARIZATION_BACKEND` overrides the database setting for the duration of the test run.
 
 ---
 
@@ -578,10 +694,78 @@ TRANSCRIPTION_BACKEND=openai OPENAI_API_KEY=key \
 | `segmenter.py`              | Current segmenter (inaSpeechSegmenter CNN)                       |
 | `transcriber.py`            | Speech transcription (local/OpenAI/Anthropic backends)           |
 | `fingerprinter.py`          | Music identification via AcoustID/Chromaprint                    |
+| `summarizer.py`             | LLM summarization and tag extraction (local/OpenAI/Anthropic)    |
 | `tune.py`                   | Evaluate boundary accuracy + grid search over tuning parameters  |
 | `audacity_to_labels.py`     | Convert Audacity label export to `labels.json` for `tune.py`     |
 | `segmenter_webrtcvad.py`    | Previous segmenter (webrtcvad + 4 Hz modulation). Rollback only. |
 | `__init__.py`               | Package init                                                     |
+
+---
+
+## Running the integration tests
+
+The test suite lives in `radios/tests/` and exercises the full pipeline end-to-end.
+Test fixtures (`test_1.mp3` and `test_1.txt`) live in `radios/tests/test_files/`.
+
+All tests are tagged `slow` and `integration`.
+
+```bash
+source env/bin/activate
+
+# Run all integration tests
+python manage.py test radios --tag=integration
+
+# Run each module individually
+python manage.py test radios.tests.test_segmentation
+python manage.py test radios.tests.test_fingerprinting
+python manage.py test radios.tests.test_transcription
+python manage.py test radios.tests.test_summarization
+python manage.py test radios.tests.test_pipeline
+
+# Exclude slow tests from a CI run
+python manage.py test radios --exclude-tag=slow
+```
+
+### Environment variables
+
+| Variable | Used by | Description |
+|---|---|---|
+| `TEST_MP3` | all test modules | Path to the audio file to analyse |
+| `TEST_LABELS` | `test_segmentation`, `test_fingerprinting`, `test_pipeline` | Path to Audacity label export (tab-separated `.txt`) |
+| `ACOUSTID_API_KEY` | `test_fingerprinting`, `test_pipeline` | AcoustID API key (fingerprinting skipped if unset) |
+| `SAVE_SEGMENTS` | `test_segmentation` | Set to `1` to write each segment as an MP3 to `media/segments/` |
+| `TRANSCRIPTION_BACKEND` | `test_transcription`, `test_pipeline` | Override DB setting: `local`, `openai`, `anthropic` |
+| `OPENAI_API_KEY` | `test_transcription`, `test_summarization`, `test_pipeline` | Required for `openai` backend |
+| `ANTHROPIC_API_KEY` | `test_transcription`, `test_summarization`, `test_pipeline` | Required for `anthropic` backend |
+| `SUMMARIZATION_BACKEND` | `test_summarization`, `test_pipeline` | Override DB setting: `local`, `openai`, `anthropic` |
+| `SAMPLE_TRANSCRIPT` | `test_summarization` | Path to a plain-text transcript file (overrides built-in samples) |
+
+### What each test file does
+
+| Test file | Class | What it checks |
+|---|---|---|
+| `test_segmentation.py` | `SegmentationTest` | Runs `segment_audio()`, prints a segment table, compares against ground-truth labels, asserts ≥ 70% type accuracy. With `SAVE_SEGMENTS=1`, saves each segment to disk. |
+| `test_fingerprinting.py` | `FingerprintingTest` | Calls `fingerprint_segment()` on each music segment from ground-truth labels. Prints artist/title/score. Skipped if `ACOUSTID_API_KEY` or `TEST_LABELS` not set. |
+| `test_fingerprinting.py` | `FingerprintSingleFileTest` | Fingerprints `TEST_MP3` as a single whole-file segment — no labels needed. |
+| `test_transcription.py` | `TranscriptionTest` | Transcribes each speech segment from ground-truth labels. Prints language, confidence, text preview, and English translation where available. |
+| `test_transcription.py` | `TranscriptionSingleSegmentTest` | Transcribes the first 60 s of `TEST_MP3` as a quick sanity check. |
+| `test_summarization.py` | `SummarizationSanityTest` | Summarizes a single short text; asserts non-empty summary and tag list. |
+| `test_summarization.py` | `SummarizationChunkTest` | Summarizes three sample radio chunks (news, sports, weather); prints summary and tags for each. Accepts a custom transcript via `SAMPLE_TRANSCRIPT`. |
+| `test_summarization.py` | `SummarizationDailyTest` | Chains chunk summaries into a daily aggregate; prints the final summary and tag list. |
+| `test_pipeline.py` | `PipelineTest.test_segment_then_fingerprint` | Segmentation + fingerprinting with ground-truth comparison. |
+| `test_pipeline.py` | `PipelineTest.test_transcribe_then_summarize` | Transcribes all speech segments from `TEST_MP3`, then runs summarization on the collected text. Prints the summary and extracted tags. |
+
+### Full pipeline example
+
+```bash
+TEST_MP3=/path/to/recording.mp3 TEST_LABELS=/path/to/labels.txt \
+    ACOUSTID_API_KEY=your_key \
+    TRANSCRIPTION_BACKEND=local \
+    SUMMARIZATION_BACKEND=local \
+    python manage.py test radios.tests.test_pipeline
+```
+
+---
 
 ## Rollback to webrtcvad
 
