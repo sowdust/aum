@@ -687,12 +687,65 @@ SAMPLE_TRANSCRIPT=/path/to/transcript.txt \
 
 ---
 
+## Transcription Correction
+
+An optional LLM post-processing step that fixes speech-to-text errors (misspelled
+names, garbled words) and re-translates the corrected text to English. Runs after
+transcription, before summarization.
+
+### Pipeline flow (when correction is enabled)
+
+```
+segmentation → fingerprinting + transcription (parallel) → correction + translation → summarization
+```
+
+1. Transcription produces `text` (and initial `text_english`).
+2. The correction LLM fixes `text` → saves the original to `text_original`, corrected to `text`.
+3. The correction LLM also translates the corrected text → overwrites `text_english`.
+4. Summarization reads the corrected `text`.
+
+When correction is **disabled** (the default), the pipeline works exactly as before.
+
+### Configuration
+
+All correction parameters are configured through the Django admin interface under
+**Transcription Settings** → **Transcription Correction (LLM)** (collapsed fieldset).
+
+| Setting | Where | Notes |
+|---------|-------|-------|
+| Enable correction | Admin → Transcription Settings | Default: off |
+| Correction backend | Admin → Transcription Settings | `local_ollama`, `cloud_ollama`, `openai`, `anthropic` |
+| Backend model/URL | Admin → Transcription Settings | Per-backend fields (same pattern as summarization) |
+| Correction prompt | Admin → Transcription Settings | Editable template with `{segments}`, `{radio_name}`, `{radio_location}`, `{radio_language}` |
+| API keys | **Environment variables** | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OLLAMA_API_KEY` |
+
+### How it works
+
+1. After transcription completes, the corrector loads all speech segments with non-empty text.
+2. Segments are formatted as a numbered list and sent to the configured LLM with radio context
+   (name, location, language) to help the model make informed corrections.
+3. The LLM returns a JSON array with corrected text and English translations.
+4. For each segment: `text_original` preserves the raw transcription, `text` gets the corrected
+   version, and `text_english` gets the translation of the corrected text.
+
+### Backends
+
+| Backend | Engine | Requires | Best for |
+|---------|--------|----------|----------|
+| `local_ollama` | Ollama (local) | Ollama running locally | Development, offline, privacy |
+| `cloud_ollama` | Ollama (cloud) | `OLLAMA_API_KEY` env var | Cloud processing |
+| `openai` | OpenAI Chat API | `OPENAI_API_KEY` env var | High accuracy |
+| `anthropic` | Claude | `ANTHROPIC_API_KEY` env var | Multilingual accuracy |
+
+---
+
 ## Files
 
 | File                        | Purpose                                                          |
 |-----------------------------|------------------------------------------------------------------|
 | `segmenter.py`              | Current segmenter (inaSpeechSegmenter CNN)                       |
 | `transcriber.py`            | Speech transcription (local/OpenAI/Anthropic backends)           |
+| `corrector.py`              | LLM transcription correction and re-translation                  |
 | `fingerprinter.py`          | Music identification via AcoustID/Chromaprint                    |
 | `summarizer.py`             | LLM summarization and tag extraction (local/OpenAI/Anthropic)    |
 | `tune.py`                   | Evaluate boundary accuracy + grid search over tuning parameters  |

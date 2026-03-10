@@ -132,6 +132,21 @@ class TranscriptionSettingsAdmin(admin.ModelAdmin):
                 "OLLAMA_API_KEY environment variable."
             ),
         }),
+        ("Transcription Correction (LLM)", {
+            "classes": ("collapse",),
+            "fields": [
+                "enable_correction", "correction_backend",
+                "correction_local_ollama_model", "correction_local_ollama_url",
+                "correction_cloud_ollama_model", "correction_cloud_ollama_url",
+                "correction_openai_model", "correction_anthropic_model",
+                "correction_prompt",
+            ],
+            "description": (
+                "Optional LLM post-processing to fix transcription errors and produce "
+                "English translation from corrected text. Runs after speech-to-text, "
+                "before summarization."
+            ),
+        }),
     ]
 
     def has_add_permission(self, request):

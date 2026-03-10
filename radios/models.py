@@ -345,12 +345,10 @@ def recording_upload_path(instance, filename):
 
 
 ANALYSIS_STATUS_CHOICES = [
-    ("pending", "Pending"),
-    ("analysing", "Analysing"),
-    ("transcribing", "Transcribing"),
-    ("transcribed", "Transcribed"),
-    ("summarizing", "Summarizing"),
-    ("done", "Done"),
+    ("pending", "Pending"),           # needs segmentation
+    ("segmented", "Segmented"),       # needs fingerprinting + transcription
+    ("transcribed", "Transcribed"),   # needs summarization
+    ("done", "Done"),                 # all stages complete
     ("failed", "Failed"),
 ]
 
@@ -373,6 +371,10 @@ class Recording(models.Model):
 
     class Meta:
         ordering = ["-start_time"]
+        indexes = [
+            models.Index(fields=["start_time"], name="idx_recording_start_time"),
+            models.Index(fields=["stream", "start_time"], name="idx_recording_stream_start"),
+        ]
 
     def __str__(self):
         return f"{self.stream.source} [{self.start_time} - {self.end_time}]"
@@ -397,6 +399,8 @@ class TranscriptionSegment(models.Model):
     start_offset = models.FloatField(help_text="Seconds from recording start_time")
     end_offset = models.FloatField(help_text="Seconds from recording start_time")
     text = models.TextField(blank=True, default="")
+    text_original = models.TextField(blank=True, default="",
+        help_text="Raw transcription before LLM correction; empty if correction was not applied.")
     text_english = models.TextField(blank=True, default="",
         help_text="English translation when original text is non-English; empty if already English.")
     confidence = models.FloatField(default=0.0)
@@ -408,6 +412,8 @@ class TranscriptionSegment(models.Model):
         ordering = ["recording", "start_offset"]
         indexes = [
             models.Index(fields=["recording", "start_offset"]),
+            models.Index(fields=["song_title"], name="idx_segment_song_title"),
+            models.Index(fields=["song_artist"], name="idx_segment_song_artist"),
         ]
 
     def __str__(self):
@@ -437,6 +443,33 @@ Chunk summaries:
 {content}
 
 Respond with ONLY the JSON object, no markdown fences or explanation."""
+
+
+_DEFAULT_CORRECTION_PROMPT = """\
+You are correcting speech-to-text transcription errors from a radio broadcast.
+
+Radio: {radio_name}
+Location: {radio_location}
+Language: {radio_language}
+
+Below are numbered transcript segments. Fix transcription errors (misspelled names,
+incorrect words, garbled text) while preserving the original meaning and language.
+Do NOT summarize. Only correct obvious errors.
+
+After correcting each segment, also provide an English translation of the corrected text.
+If the original text is already in English, the translation should be identical to the
+corrected text.
+
+Segments:
+{segments}
+
+Return ONLY a valid JSON array where each element has:
+- "index": the segment number
+- "text": the corrected text in the original language
+- "text_english": English translation of the corrected text
+
+If a segment needs no correction, return the original text unchanged.
+No markdown fences or explanation."""
 
 
 class TranscriptionSettings(models.Model):
@@ -515,6 +548,54 @@ class TranscriptionSettings(models.Model):
             "Base URL of the Ollama server for audio transcription. "
             "Use 'http://localhost:11434' for a local instance. "
             "Note: Ollama cloud (ollama.com) does not support audio transcription."
+        ),
+    )
+
+    # --- Transcription correction (LLM post-processing) ---
+    CORRECTION_BACKEND_CHOICES = [
+        ("local_ollama", "Local Ollama"),
+        ("cloud_ollama", "Cloud Ollama"),
+        ("openai", "OpenAI"),
+        ("anthropic", "Anthropic (Claude)"),
+    ]
+
+    enable_correction = models.BooleanField(
+        default=False,
+        help_text="Enable LLM post-processing to fix transcription errors and produce English translation from corrected text.",
+    )
+    correction_backend = models.CharField(
+        max_length=20, choices=CORRECTION_BACKEND_CHOICES, default="local_ollama",
+        help_text="Which LLM backend to use for transcription correction.",
+    )
+    correction_local_ollama_model = models.CharField(
+        max_length=100, default="llama3.2",
+        help_text="Ollama model name for local correction (e.g. 'llama3.2', 'mistral').",
+    )
+    correction_local_ollama_url = models.URLField(
+        max_length=500, default="http://localhost:11434",
+        help_text="Base URL of the local Ollama server for correction.",
+    )
+    correction_cloud_ollama_model = models.CharField(
+        max_length=100, default="llama3.2",
+        help_text="Ollama model name for cloud correction. Set OLLAMA_API_KEY.",
+    )
+    correction_cloud_ollama_url = models.URLField(
+        max_length=500, default="https://ollama.com",
+        help_text="Base URL of the Ollama cloud API for correction.",
+    )
+    correction_openai_model = models.CharField(
+        max_length=100, default="gpt-4o-mini",
+        help_text="OpenAI model name for correction. API key must be set in OPENAI_API_KEY.",
+    )
+    correction_anthropic_model = models.CharField(
+        max_length=100, default="claude-haiku-4-5-20251001",
+        help_text="Claude model ID for correction. API key must be set in ANTHROPIC_API_KEY.",
+    )
+    correction_prompt = models.TextField(
+        default=_DEFAULT_CORRECTION_PROMPT,
+        help_text=(
+            "Prompt template for transcription correction. "
+            "Placeholders: {segments}, {radio_name}, {radio_location}, {radio_language}."
         ),
     )
 

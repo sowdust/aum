@@ -13,3 +13,8 @@ pyacoustid         # AcoustID song identification (needs fpcalc binary)
 openai             # API transcription fallback + LLM summarisation
 #anthropic          # Claude API for audio transcription + LLM provider
 ollama             # Local LLM summarisation via Ollama
+
+# REST API
+djangorestframework       # DRF — REST API framework
+django-filter             # Structured filtering for DRF
+djangorestframework-simplejwt  # JWT authentication for API clients
