@@ -152,7 +152,7 @@ class Command(BaseCommand):
                 logger.info("Stream %s deactivated — stopping worker", stream_id)
                 workers.pop(stream_id).stop()
             elif not _is_recording_enabled(stream):
-                logger.info("Recording disabled for '%s' — stopping worker", stream.name)
+                logger.info("Recording disabled for '%s' — stopping worker", stream)
                 workers.pop(stream_id).stop()
 
         # Start workers for newly eligible streams
@@ -162,30 +162,30 @@ class Command(BaseCommand):
 
             source = stream.source
             if source is None:
-                logger.warning("Stream '%s' has no source (radio/audio_feed) — skipping", stream.name)
+                logger.warning("Stream '%s' has no source (radio/audio_feed) — skipping", stream)
                 continue
 
             if not _has_valid_url_scheme(stream.url, ALLOWED_STREAM_SCHEMES):
                 logger.error(
                     "Stream '%s' URL uses a disallowed scheme — skipping (only http/https allowed)",
-                    stream.name,
+                    stream,
                 )
                 continue
 
             if _is_recording_enabled(stream) and _is_within_recording_window(source):
-                logger.info("Starting worker for '%s' (id=%s)", stream.name, stream_id)
+                logger.info("Starting worker for '%s' (id=%s)", stream, stream_id)
                 worker = RecorderWorker(stream)
                 worker.start()
                 workers[stream_id] = worker
             else:
-                logger.debug("Stream '%s' not eligible (window/flags) — skipping", stream.name)
+                logger.debug("Stream '%s' not eligible (window/flags) — skipping", stream)
 
         # Tick all workers (chunk rotation, crash recovery)
         for worker in list(workers.values()):
             try:
                 worker.tick()
             except Exception:
-                logger.exception("Worker for '%s' crashed in tick()", worker.stream.name)
+                logger.exception("Worker for '%s' crashed in tick()", worker.stream)
 
 
 # ---------------------------------------------------------------------------
@@ -210,11 +210,11 @@ class RecorderWorker:
     # -- public API --------------------------------------------------------
 
     def start(self):
-        logger.info("Worker[%s]: starting first chunk", self.stream.name)
+        logger.info("Worker[%s]: starting first chunk", self.stream)
         self._start_chunk()
 
     def stop(self):
-        logger.info("Worker[%s]: stopping", self.stream.name)
+        logger.info("Worker[%s]: stopping", self.stream)
         self._finalize_chunk()
 
     def tick(self):
@@ -228,7 +228,7 @@ class RecorderWorker:
         # No running process — restart if we should be recording
         if self._process is None:
             if in_window:
-                logger.warning("Worker[%s]: no ffmpeg process — restarting", self.stream.name)
+                logger.warning("Worker[%s]: no ffmpeg process — restarting", self.stream)
                 self._start_chunk()
             return
 
@@ -238,7 +238,7 @@ class RecorderWorker:
             stderr_tail = self._read_stderr()
             logger.warning(
                 "Worker[%s]: ffmpeg exited (rc=%s)%s",
-                self.stream.name, rc,
+                self.stream, rc,
                 f"\n  stderr: {stderr_tail}" if stderr_tail else "",
             )
             self._finalize_chunk()
@@ -248,14 +248,14 @@ class RecorderWorker:
 
         # Outside recording window — stop gracefully
         if not in_window:
-            logger.info("Worker[%s]: outside recording window — finalizing", self.stream.name)
+            logger.info("Worker[%s]: outside recording window — finalizing", self.stream)
             self._finalize_chunk()
             return
 
         # Chunk boundary — rotate
         elapsed = (timezone.now() - self._chunk_start).total_seconds()
         if elapsed >= settings.CHUNK_SIZE:
-            logger.info("Worker[%s]: chunk time reached — rotating", self.stream.name)
+            logger.info("Worker[%s]: chunk time reached — rotating", self.stream)
             self._finalize_chunk()
             self._start_chunk()
 
@@ -286,7 +286,7 @@ class RecorderWorker:
             else:
                 logger.warning(
                     "Worker[%s]: proxy URL has disallowed scheme — ignoring",
-                    self.stream.name,
+                    self.stream,
                 )
 
         # Reconnect options — input-level, must come before -i
@@ -329,7 +329,7 @@ class RecorderWorker:
         proxy_url = source.get_effective_proxy_url() if source else ""
         logger.info(
             "Worker[%s]: ffmpeg -> %s%s",
-            self.stream.name, self._temp_path,
+            self.stream, self._temp_path,
             " (via proxy)" if proxy_url else "",
         )
 
@@ -342,7 +342,7 @@ class RecorderWorker:
                 stderr=self._stderr_fh,
             )
         except Exception:
-            logger.exception("Worker[%s]: failed to launch ffmpeg", self.stream.name)
+            logger.exception("Worker[%s]: failed to launch ffmpeg", self.stream)
             self._process = None
             self._temp_path = None
             self._chunk_start = None
@@ -399,33 +399,33 @@ class RecorderWorker:
             try:
                 proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                logger.warning("Worker[%s]: ffmpeg did not exit — sending SIGKILL", self.stream.name)
+                logger.warning("Worker[%s]: ffmpeg did not exit — sending SIGKILL", self.stream)
                 proc.kill()
                 proc.wait(timeout=5)
 
         # Log ffmpeg diagnostics, then clean up the stderr file
         stderr_tail = self._read_stderr()
         if stderr_tail:
-            logger.info("Worker[%s]: ffmpeg stderr:\n%s", self.stream.name, stderr_tail)
+            logger.info("Worker[%s]: ffmpeg stderr:\n%s", self.stream, stderr_tail)
         self._close_stderr()
 
         end_time = timezone.now()
 
         # Validate the output file
         if not temp_path or not os.path.exists(temp_path):
-            logger.warning("Worker[%s]: no audio file for this chunk", self.stream.name)
+            logger.warning("Worker[%s]: no audio file for this chunk", self.stream)
             return
 
         file_size = os.path.getsize(temp_path)
         if file_size == 0:
-            logger.warning("Worker[%s]: audio file is empty (0 bytes) — discarding", self.stream.name)
+            logger.warning("Worker[%s]: audio file is empty (0 bytes) — discarding", self.stream)
             _remove_file(temp_path)
             return
 
         # Build a filesystem-safe filename
         safe_name = "".join(
             c if (c.isalnum() or c in "-_") else "_"
-            for c in self.stream.name
+            for c in self.stream
         )
         final_filename = (
             f"{safe_name}_"
@@ -435,7 +435,7 @@ class RecorderWorker:
 
         logger.info(
             "Worker[%s]: saving %s (%s -> %s, %d bytes)",
-            self.stream.name, final_filename, start_time, end_time, file_size,
+            self.stream, final_filename, start_time, end_time, file_size,
         )
 
         try:
@@ -447,8 +447,8 @@ class RecorderWorker:
                 )
                 with open(temp_path, "rb") as f:
                     rec.file.save(final_filename, File(f), save=True)
-            logger.info("Worker[%s]: saved Recording id=%s", self.stream.name, rec.id)
+            logger.info("Worker[%s]: saved Recording id=%s", self.stream, rec.id)
         except Exception:
-            logger.exception("Worker[%s]: failed to save chunk to DB/storage", self.stream.name)
+            logger.exception("Worker[%s]: failed to save chunk to DB/storage", self.stream)
         finally:
             _remove_file(temp_path)

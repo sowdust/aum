@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from radios.models import (
     Radio, Recording, Stream, TranscriptionSegment,
-    Tag, ChunkSummary, DailySummary,
+    Tag, ChunkSummary, DailySummary, Song,
 )
 
 
@@ -48,7 +48,6 @@ class TranscriptSearchResultSerializer(serializers.ModelSerializer):
         fields = [
             "id", "segment_type", "start_offset", "end_offset",
             "text", "text_english", "language", "confidence",
-            "song_title", "song_artist",
             "recording_id", "recording_start",
             "radio_slug", "radio_name",
             "snippet",
@@ -76,15 +75,18 @@ class TranscriptSearchResultSerializer(serializers.ModelSerializer):
 
 
 class SongSearchResultSerializer(serializers.ModelSerializer):
-    recording_id = serializers.UUIDField(source="recording.id", read_only=True)
+    song_title  = serializers.CharField(source="song.title",  read_only=True, default="")
+    song_artist = serializers.CharField(source="song.artist", read_only=True, default="")
+    song_mbid   = serializers.CharField(source="song.mbid",   read_only=True, default=None, allow_null=True)
+    recording_id    = serializers.UUIDField(source="recording.id", read_only=True)
     recording_start = serializers.DateTimeField(source="recording.start_time", read_only=True)
-    radio_slug = serializers.CharField(source="recording.stream.radio.slug", read_only=True, default=None)
-    radio_name = serializers.CharField(source="recording.stream.radio.name", read_only=True, default=None)
+    radio_slug  = serializers.CharField(source="recording.stream.radio.slug", read_only=True, default=None)
+    radio_name  = serializers.CharField(source="recording.stream.radio.name", read_only=True, default=None)
 
     class Meta:
         model = TranscriptionSegment
         fields = [
-            "id", "song_title", "song_artist",
+            "id", "song_title", "song_artist", "song_mbid",
             "start_offset", "end_offset",
             "recording_id", "recording_start",
             "radio_slug", "radio_name",
@@ -92,9 +94,10 @@ class SongSearchResultSerializer(serializers.ModelSerializer):
 
 
 class SongAggregateSerializer(serializers.Serializer):
-    song_title = serializers.CharField()
+    song_title  = serializers.CharField()
     song_artist = serializers.CharField()
-    play_count = serializers.IntegerField()
+    song_mbid   = serializers.CharField(allow_null=True)
+    play_count  = serializers.IntegerField()
 
 
 class TagSerializer(serializers.ModelSerializer):

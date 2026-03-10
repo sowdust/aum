@@ -320,7 +320,7 @@ class Stream(models.Model):
         return self.radio or self.audio_feed
 
     def __str__(self):
-        return self.name
+        return f"{self.radio.name} - {self.name}"
 
 
 def safe_stream_folder(stream_name: str) -> str:
@@ -344,12 +344,12 @@ def recording_upload_path(instance, filename):
     )
 
 
-ANALYSIS_STATUS_CHOICES = [
-    ("pending", "Pending"),           # needs segmentation
-    ("segmented", "Segmented"),       # needs fingerprinting + transcription
-    ("transcribed", "Transcribed"),   # needs summarization
-    ("done", "Done"),                 # all stages complete
+STAGE_STATUS_CHOICES = [
+    ("pending", "Pending"),
+    ("running", "Running"),
+    ("done", "Done"),
     ("failed", "Failed"),
+    ("skipped", "Skipped"),
 ]
 
 
@@ -359,15 +359,57 @@ class Recording(models.Model):
     start_time = models.DateTimeField()
     end_time = models.DateTimeField()
     file = models.FileField(upload_to=recording_upload_path)
-    analysis_status = models.CharField(
-        max_length=20,
-        choices=ANALYSIS_STATUS_CHOICES,
-        default="pending",
-        db_index=True,
+
+    # Per-stage status tracking
+    segmentation_status = models.CharField(
+        max_length=10, choices=STAGE_STATUS_CHOICES, default="pending", db_index=True,
     )
-    analysis_error = models.TextField(blank=True, default="")
+    segmentation_error = models.TextField(blank=True, default="")
+    fingerprinting_status = models.CharField(
+        max_length=10, choices=STAGE_STATUS_CHOICES, default="pending", db_index=True,
+    )
+    fingerprinting_error = models.TextField(blank=True, default="")
+    transcription_status = models.CharField(
+        max_length=10, choices=STAGE_STATUS_CHOICES, default="pending", db_index=True,
+    )
+    transcription_error = models.TextField(blank=True, default="")
+    summarization_status = models.CharField(
+        max_length=10, choices=STAGE_STATUS_CHOICES, default="pending", db_index=True,
+    )
+    summarization_error = models.TextField(blank=True, default="")
+
     analysis_started_at = models.DateTimeField(null=True, blank=True)
     analysis_completed_at = models.DateTimeField(null=True, blank=True)
+
+    @property
+    def analysis_status(self):
+        """Computed overall status from per-stage statuses."""
+        stages = [
+            self.segmentation_status, self.fingerprinting_status,
+            self.transcription_status, self.summarization_status,
+        ]
+        if any(s == "failed" for s in stages):
+            return "failed"
+        if all(s in ("done", "skipped") for s in stages):
+            return "done"
+        if any(s == "running" for s in stages):
+            return "running"
+        return "pending"
+
+    @property
+    def analysis_error(self):
+        """Aggregate error text from all failed stages."""
+        errors = filter(None, [
+            self.segmentation_error, self.fingerprinting_error,
+            self.transcription_error, self.summarization_error,
+        ])
+        return "\n---\n".join(errors)
+
+    @property
+    def duration(self):
+        if self.start_time and self.end_time:
+            return self.end_time - self.start_time
+        return None
 
     class Meta:
         ordering = ["-start_time"]
@@ -378,6 +420,46 @@ class Recording(models.Model):
 
     def __str__(self):
         return f"{self.stream.source} [{self.start_time} - {self.end_time}]"
+
+
+class Song(models.Model):
+    """
+    A music track identified via AcoustID/MusicBrainz fingerprinting.
+    Shared across all TranscriptionSegment occurrences of the same track.
+    """
+    title  = models.CharField(max_length=255, db_index=True)
+    artist = models.CharField(max_length=255, blank=True, db_index=True)
+    mbid   = models.CharField(
+        max_length=36, unique=True, null=True, blank=True,
+        help_text="MusicBrainz Recording ID from AcoustID. Null when unavailable.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["title"]
+
+    def __str__(self):
+        return f"{self.artist} — {self.title}" if self.artist else self.title
+
+    @classmethod
+    def get_or_create_from_fingerprint(cls, result):
+        """
+        Resolve a FingerprintResult to a Song row.
+        Prefers mbid as the canonical key; falls back to (title, artist)
+        for the rare case where AcoustID returns no mbid.
+        """
+        if result.mbid:
+            song, _ = cls.objects.get_or_create(
+                mbid=result.mbid,
+                defaults={"title": result.title, "artist": result.artist},
+            )
+        else:
+            song, _ = cls.objects.get_or_create(
+                title=result.title,
+                artist=result.artist,
+                mbid=None,
+            )
+        return song
 
 
 class TranscriptionSegment(models.Model):
@@ -405,15 +487,14 @@ class TranscriptionSegment(models.Model):
         help_text="English translation when original text is non-English; empty if already English.")
     confidence = models.FloatField(default=0.0)
     language = models.CharField(max_length=10, blank=True, default="")
-    song_title = models.CharField(max_length=255, blank=True, default="")
-    song_artist = models.CharField(max_length=255, blank=True, default="")
+    song = models.ForeignKey(
+        Song, null=True, blank=True, on_delete=models.SET_NULL, related_name="occurrences"
+    )
 
     class Meta:
         ordering = ["recording", "start_offset"]
         indexes = [
             models.Index(fields=["recording", "start_offset"]),
-            models.Index(fields=["song_title"], name="idx_segment_song_title"),
-            models.Index(fields=["song_artist"], name="idx_segment_song_artist"),
         ]
 
     def __str__(self):

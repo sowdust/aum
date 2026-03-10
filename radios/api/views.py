@@ -111,24 +111,24 @@ class SongSearchView(generics.ListAPIView):
             .filter(
                 segment_type="music",
                 recording__stream_id__in=visible_stream_ids,
+                song__isnull=False,
             )
-            .exclude(song_title="")
-            .select_related("recording", "recording__stream", "recording__stream__radio")
+            .select_related("song", "recording", "recording__stream", "recording__stream__radio")
         )
 
         query = self.request.query_params.get("q", "").strip()
         if query:
             qs = qs.filter(
-                Q(song_title__icontains=query) | Q(song_artist__icontains=query)
+                Q(song__title__icontains=query) | Q(song__artist__icontains=query)
             )
 
         title = self.request.query_params.get("title", "").strip()
         if title:
-            qs = qs.filter(song_title__icontains=title)
+            qs = qs.filter(song__title__icontains=title)
 
         artist = self.request.query_params.get("artist", "").strip()
         if artist:
-            qs = qs.filter(song_artist__icontains=artist)
+            qs = qs.filter(song__artist__icontains=artist)
 
         radio = self.request.query_params.get("radio")
         if radio:
@@ -148,15 +148,24 @@ class SongSearchView(generics.ListAPIView):
         if request.query_params.get("group") == "true":
             qs = self.get_queryset()
             aggregated = (
-                qs.values("song_title", "song_artist")
+                qs.values("song__title", "song__artist", "song__mbid")
                 .annotate(play_count=Count("id"))
                 .order_by("-play_count")
             )
-            page = self.paginate_queryset(list(aggregated))
+            results = [
+                {
+                    "song_title": r["song__title"],
+                    "song_artist": r["song__artist"],
+                    "song_mbid": r["song__mbid"],
+                    "play_count": r["play_count"],
+                }
+                for r in aggregated
+            ]
+            page = self.paginate_queryset(results)
             if page is not None:
                 serializer = SongAggregateSerializer(page, many=True)
                 return self.get_paginated_response(serializer.data)
-            serializer = SongAggregateSerializer(aggregated, many=True)
+            serializer = SongAggregateSerializer(results, many=True)
             return Response(serializer.data)
         return super().list(request, *args, **kwargs)
 

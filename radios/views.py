@@ -15,6 +15,7 @@ from django.conf import settings
 from .models import EmailVerificationToken
 from .forms import UserRegisterForm
 from .models import Radio, Recording, Stream
+import os
 
 
 from django.contrib.auth.decorators import login_required
@@ -117,6 +118,7 @@ def radio_recordings(request, slug):
     radio = get_object_or_404(Radio, slug=slug)
     streams = Stream.objects.filter(radio=radio)
     recordings = Recording.objects.filter(stream__in=streams)
+
     start = request.GET.get("start")
     end = request.GET.get("end")
     if start:
@@ -124,15 +126,49 @@ def radio_recordings(request, slug):
     if end:
         recordings = recordings.filter(start_time__lte=end)
 
-    recordings = recordings.order_by("-start_time")
+    recordings = (
+        recordings
+        .select_related("stream")
+        .prefetch_related(
+            "segments__song",
+            "chunk_summary__tags",
+        )
+        .order_by("-start_time")
+    )
 
     context = {
-        'radio': radio,
-        'recordings': recordings,
-        'start': start,
-        'end' : end
+        "radio": radio,
+        "recordings": recordings,
+        "start": start,
+        "end": end,
     }
-    return render(request,'radio_recordings.html', context)
+    return render(request, "radio_recordings.html", context)
+
+@login_required
+def recording_delete(request, slug, recording_id):
+    if not request.user.is_staff:
+        raise PermissionDenied()
+
+    radio = get_object_or_404(Radio, slug=slug)
+    # Scope the lookup to recordings belonging to this radio to prevent IDOR
+    recording = get_object_or_404(
+        Recording, id=recording_id, stream__radio=radio
+    )
+
+    if request.method == "POST":
+        file_path = recording.file.path if recording.file else None
+        recording.delete()  # cascades to segments, summaries, etc.
+        if file_path and os.path.isfile(file_path):
+            os.remove(file_path)
+        messages.success(request, "Recording deleted.")
+        return redirect("radio_recordings", slug=slug)
+
+    # GET: show confirmation page
+    return render(request, "recording_confirm_delete.html", {
+        "radio": radio,
+        "recording": recording,
+    })
+
 
 def register(request):
     if request.method == "POST":

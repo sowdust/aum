@@ -6,10 +6,59 @@ from django import forms
 from .models import (
     Radio, AudioFeed, Recording, Stream, RadioUser,
     TranscriptionSegment, ChunkSummary, DailySummary, FeedAnomaly,
-    GlobalPipelineSettings, TranscriptionSettings, SummarizationSettings,
+    GlobalPipelineSettings, TranscriptionSettings, SummarizationSettings, Song,
 )
 
-admin.site.register(Recording)
+@admin.register(Recording)
+class RecordingAdmin(admin.ModelAdmin):
+    list_display = (
+        "__str__", "segmentation_status", "fingerprinting_status",
+        "transcription_status", "summarization_status",
+        "analysis_started_at", "analysis_completed_at",
+    )
+    list_filter = (
+        "segmentation_status", "fingerprinting_status",
+        "transcription_status", "summarization_status",
+        "stream",
+    )
+    search_fields = ("id", "stream__name")
+    readonly_fields = (
+        "id", "analysis_started_at", "analysis_completed_at",
+        "analysis_status_display", "analysis_error_display",
+    )
+    fieldsets = [
+        (None, {"fields": ["id", "stream", "start_time", "end_time", "file"]}),
+        ("Analysis Status", {
+            "fields": [
+                "analysis_status_display",
+                "segmentation_status", "segmentation_error",
+                "fingerprinting_status", "fingerprinting_error",
+                "transcription_status", "transcription_error",
+                "summarization_status", "summarization_error",
+                "analysis_started_at", "analysis_completed_at",
+            ],
+        }),
+    ]
+    actions = ["retry_failed_stages"]
+
+    @admin.display(description="Overall status")
+    def analysis_status_display(self, obj):
+        return obj.analysis_status
+
+    @admin.display(description="Errors")
+    def analysis_error_display(self, obj):
+        return obj.analysis_error or "(none)"
+
+    @admin.action(description="Retry failed stages (reset to pending)")
+    def retry_failed_stages(self, request, queryset):
+        count = 0
+        for stage in ("segmentation", "fingerprinting", "transcription", "summarization"):
+            field = f"{stage}_status"
+            error_field = f"{stage}_error"
+            count += queryset.filter(**{field: "failed"}).update(
+                **{field: "pending", error_field: ""}
+            )
+        self.message_user(request, f"Reset {count} failed stage(s) to pending.")
 admin.site.register(RadioUser)
 
 
@@ -235,19 +284,34 @@ class AudioFeedAdmin(admin.ModelAdmin):
     ]
 
 
+@admin.register(Song)
+class SongAdmin(admin.ModelAdmin):
+    list_display = ("title", "artist", "mbid", "created_at")
+    search_fields = ("title", "artist", "mbid")
+    readonly_fields = ("created_at",)
+
+
 @admin.register(TranscriptionSegment)
 class TranscriptionSegmentAdmin(admin.ModelAdmin):
     list_display = (
         "recording", "segment_type", "start_offset", "end_offset",
-        "language", "has_transcription", "song_artist", "song_title",
+        "language", "has_transcription", "get_song_artist", "get_song_title",
     )
     list_filter = ("segment_type", "language")
-    search_fields = ("text", "text_english", "song_title", "song_artist")
+    search_fields = ("text", "text_english", "song__title", "song__artist")
     readonly_fields = ("recording", "segment_type", "start_offset", "end_offset")
 
     @admin.display(boolean=True, description="Transcribed")
     def has_transcription(self, obj):
         return bool(obj.text)
+
+    @admin.display(description="Artist")
+    def get_song_artist(self, obj):
+        return obj.song.artist if obj.song else ""
+
+    @admin.display(description="Song title")
+    def get_song_title(self, obj):
+        return obj.song.title if obj.song else ""
 
 
 @admin.register(ChunkSummary)
