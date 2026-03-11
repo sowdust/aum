@@ -9,7 +9,9 @@ django-language-field
 inaSpeechSegmenter # CNN-based speech/music/noise segmentation for broadcast audio
 # webrtcvad        # Voice Activity Detection — replaced by inaSpeechSegmenter (kept for rollback)
 faster-whisper     # Local speech transcription (CPU or GPU)
-pyacoustid         # AcoustID song identification (needs fpcalc binary)
+shazamio==0.6.0    # Shazam song identification (async, no API key needed)
+aiohttp==3.8.1     # to be compatible with shazamio
+# pyacoustid       # AcoustID song identification — replaced by shazamio (kept for rollback)
 openai             # API transcription fallback + LLM summarisation
 #anthropic          # Claude API for audio transcription + LLM provider
 ollama             # Local LLM summarisation via Ollama

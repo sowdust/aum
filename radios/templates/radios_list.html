@@ -1,54 +1,64 @@
 {% extends "base.html" %}
-{% load static %}
-
 {% block title %}Radio Directory{% endblock %}
 
 {% block content %}
-<div class="space-y-6">
 
+<div class="panel">
 
-    <!-- Grid of Cards -->
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-        {% for radio in radios %}
-        <a href="{% url 'radio_detail' radio.slug %}" class="group block p-4 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm hover:shadow-md dark:hover:shadow-none transition">
+  <div class="panel-title">Radio Directory</div>
 
-            <!-- Logo -->
-            {% if radio.logo %}
-            <img src="{{ radio.logo.url }}" alt="{{ radio.name }} logo {{ radio.logo }}"
-                 class="w-full h-40 object-cover rounded-lg mb-4 border border-gray-200 dark:border-gray-700" />
-            {% endif %}
+  <div class="radio-directory">
 
-            <!-- Name & Frequency -->
-            <h2 class="text-xl font-semibold group-hover:text-blue-600 dark:group-hover:text-blue-400 transition">{{ radio.name }}</h2>
-            {% if radio.frequency %}
-            <p class="text-gray-600 dark:text-gray-300 text-sm mb-2">📡 {{ radio.frequency }}</p>
-            {% endif %}
+    {% for radio in radios %}
 
-            <!-- Location -->
-            <p class="text-sm text-gray-700 dark:text-gray-300 mb-3">
-                {{ radio.city }}, {{ radio.country }}
-            </p>
+    <a href="{% url 'radio_detail' radio.slug %}" class="radio-card">
 
-            <!-- Broadcast Types -->
-            <div class="flex flex-wrap gap-2 mb-4">
-                {% for item in radio.broadcast_type.all %}
-                <span class="px-2 py-1 rounded-full bg-gray-200 dark:bg-gray-700 text-xs">{{ item }}</span>
-                {% endfor %}
-            </div>
+      {% if radio.logo %}
+      <div class="radio-card-logo">
+        <img src="{{ radio.logo.url }}" alt="{{ radio.name }}">
+      </div>
+      {% endif %}
 
-            <!-- Stream badge -->
-            {% if radio.streams %}
-            {% for stream in radio.streams.all %}
-            <div class="inline-block px-3 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800 dark:bg-green-800 dark:text-green-100">
-                LIVE
-            </div>
-            {% endfor %}
-            {% endif %}
+      <div class="radio-card-body">
 
-        </a>
-        {% empty %}
-        <p class="text-gray-600 dark:text-gray-300">No radios available yet.</p>
-        {% endfor %}
-    </div>
+        <div class="radio-card-name">
+          {{ radio.name }}
+        </div>
+
+        {% if radio.frequency %}
+        <div class="radio-card-frequency">
+          📡 {{ radio.frequency }}
+        </div>
+        {% endif %}
+
+        <div class="radio-card-location">
+          {{ radio.city }}, {{ radio.country }}
+        </div>
+
+        <div class="radio-card-tags">
+          {% for item in radio.broadcast_type.all %}
+          <span class="tag">{{ item }}</span>
+          {% endfor %}
+        </div>
+
+        {% if radio.streams.exists %}
+        <div class="radio-card-live">
+          <span class="led-green">●</span> live
+        </div>
+        {% endif %}
+
+      </div>
+
+    </a>
+
+    {% empty %}
+
+    <div class="empty-note">No radios available yet.</div>
+
+    {% endfor %}
+
+  </div>
+
 </div>
-{% endblock content %}
+
+{% endblock %}

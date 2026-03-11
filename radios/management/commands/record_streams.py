@@ -305,7 +305,8 @@ class RecorderWorker:
         # If your source sends AAC/Ogg/etc, change to:  -c:a libmp3lame -b:a 192k
         cmd += [
             "-vn",
-            "-c:a", "copy",
+            "-c:a", "libmp3lame",
+            "-b:a", "192k",
             "-f", "mp3",
             output_path,
         ]
@@ -425,7 +426,7 @@ class RecorderWorker:
         # Build a filesystem-safe filename
         safe_name = "".join(
             c if (c.isalnum() or c in "-_") else "_"
-            for c in self.stream
+            for c in str(self.stream)
         )
         final_filename = (
             f"{safe_name}_"

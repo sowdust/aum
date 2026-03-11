@@ -7,6 +7,7 @@
 - [x] record — `record_streams.py` (ffmpeg MP3 chunks)
 - [x] segment — `analysis/segmenter.py` (inaSpeechSegmenter CNN)
 - [x] fingerprint — `analysis/fingerprinter.py` (pyacoustid + fpcalc)
+  - [ ] fingerprint more than one song if longer than 6 minutes
 - [x] transcribe — `analysis/transcriber.py` (3 backends: local/openai/anthropic)
 - [x] **correct** — `analysis/corrector.py` (LLM post-processing: fix transcription errors + re-translate)
   - [x] 4 backends: local_ollama/cloud_ollama/openai/anthropic

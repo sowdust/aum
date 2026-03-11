@@ -4,231 +4,334 @@
 {% block title %}Recordings — {{ radio.name }}{% endblock %}
 
 {% block content %}
-<div class="space-y-6">
 
-  <!-- Header -->
-  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-    <h1 class="text-3xl font-bold">Recordings — {{ radio.name }}</h1>
-    <a href="{% url 'radio_detail' radio.slug %}"
-       class="px-4 py-2 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-600 transition">
-      &larr; Back to Radio
-    </a>
-  </div>
+<div class="recordings-page">
 
-  <!-- Date Range Filter -->
-  <form method="get"
-        class="bg-white dark:bg-gray-800 p-4 rounded-xl shadow flex flex-col sm:flex-row gap-4 items-start sm:items-end">
-    <div>
-      <label class="block text-sm text-gray-700 dark:text-gray-300 mb-1">Start date</label>
-      <input type="datetime-local" name="start" value="{{ start }}"
-             class="border dark:border-gray-600 rounded-lg px-3 py-2 bg-gray-50 dark:bg-gray-700 dark:text-gray-100">
-    </div>
-    <div>
-      <label class="block text-sm text-gray-700 dark:text-gray-300 mb-1">End date</label>
-      <input type="datetime-local" name="end" value="{{ end }}"
-             class="border dark:border-gray-600 rounded-lg px-3 py-2 bg-gray-50 dark:bg-gray-700 dark:text-gray-100">
-    </div>
-    <button type="submit"
-            class="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600">
-      Filter
-    </button>
-    {% if start or end %}
-    <a href="?"
-       class="px-4 py-2 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-600">
-      Clear
-    </a>
-    {% endif %}
-  </form>
+<!-- Header -->
 
-  <!-- Recordings List -->
-  <div class="space-y-4">
-    {% for rec in recordings %}
+<div class="panel recordings-header">
 
-    <details class="bg-white dark:bg-gray-800 rounded-xl shadow border border-gray-200 dark:border-gray-700 overflow-hidden">
+<div>
+<h1>Recordings — {{ radio.name }}</h1>
+</div>
 
-      <!-- Summary row (always visible) -->
-      <summary class="flex flex-wrap items-center gap-3 px-5 py-4 cursor-pointer select-none hover:bg-gray-50 dark:hover:bg-gray-750">
-        <span class="font-medium text-gray-900 dark:text-gray-100">{{ rec.stream.name }}</span>
-        <span class="text-gray-500 dark:text-gray-400 text-sm">
-          {{ rec.start_time|date:"Y-m-d H:i:s" }}
-          &rarr;
-          {{ rec.end_time|date:"H:i:s" }}
-          {% if rec.duration %}
-            &nbsp;({{ rec.duration }})
-          {% endif %}
-        </span>
-
-        <!-- Stage status badges -->
-        {% with stages=rec.segmentation_status|add:"," %}
-        {% endwith %}
-        <span class="ml-auto flex gap-2 flex-wrap">
-          {% include "components/stage_badge.html" with label="Seg" status=rec.segmentation_status %}
-          {% include "components/stage_badge.html" with label="FP" status=rec.fingerprinting_status %}
-          {% include "components/stage_badge.html" with label="Trans" status=rec.transcription_status %}
-          {% include "components/stage_badge.html" with label="Sum" status=rec.summarization_status %}
-        </span>
-      </summary>
-
-      <!-- Expanded content -->
-      <div class="px-5 pb-5 border-t border-gray-200 dark:border-gray-700 space-y-6 pt-4">
-
-        <!-- Full recording player -->
-        <div>
-          <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">Full recording</p>
-          <audio controls class="w-full">
-            <source src="{{ rec.file.url }}" type="audio/mpeg">
-            Your browser does not support the audio element.
-          </audio>
-          <div class="flex gap-3 mt-2">
-            <a href="{{ rec.file.url }}" download
-               class="px-3 py-1 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700 transition">
-              Download
-            </a>
-            {% if request.user.is_staff %}
-            <a href="{% url 'recording_delete' slug=radio.slug recording_id=rec.id %}"
-               class="px-3 py-1 rounded-lg bg-red-600 text-white text-sm hover:bg-red-700 transition">
-              Delete
-            </a>
-            {% endif %}
-          </div>
-        </div>
-
-        <!-- Error messages -->
-        {% if rec.segmentation_status == "failed" or rec.fingerprinting_status == "failed" or rec.transcription_status == "failed" or rec.summarization_status == "failed" %}
-        <div class="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-700 rounded-lg p-4">
-          <p class="font-semibold text-red-700 dark:text-red-400 mb-1">Pipeline errors</p>
-          <pre class="text-xs text-red-600 dark:text-red-300 whitespace-pre-wrap">{{ rec.analysis_error }}</pre>
-        </div>
-        {% endif %}
-        <!-- Segments -->
-        {% if rec.segmentation_status == "done" %}
-        <div>
-          <h3 class="font-semibold text-gray-900 dark:text-gray-100 mb-3">Segments ({{ rec.segments.count }})</h3>
-          <div class="space-y-3">
-            {% for seg in rec.segments.all %}
-            <div class="border border-gray-200 dark:border-gray-600 rounded-lg p-3 bg-gray-50 dark:bg-gray-900">
-
-              <div class="flex flex-wrap items-center gap-3 mb-2">
-                <!-- Segment type badge -->
-                {% if seg.segment_type == "speech" %}
-                  <span class="px-2 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">Speech</span>
-                {% elif seg.segment_type == "music" %}
-                  <span class="px-2 py-0.5 rounded text-xs font-semibold bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">Music</span>
-                {% elif seg.segment_type == "speech_over_music" %}
-                  <span class="px-2 py-0.5 rounded text-xs font-semibold bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200">Speech/Music</span>
-                {% elif seg.segment_type == "noise" %}
-                  <span class="px-2 py-0.5 rounded text-xs font-semibold bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200">Noise</span>
-                {% else %}
-                  <span class="px-2 py-0.5 rounded text-xs font-semibold bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400">{{ seg.get_segment_type_display }}</span>
-                {% endif %}
-
-                <!-- Time range -->
-                <span class="text-xs text-gray-500 dark:text-gray-400">
-                  {{ seg.start_offset|format_seconds }} &rarr; {{ seg.end_offset|format_seconds }}
-                </span>
-              </div>
-
-              <!-- Segment audio player -->
-              <audio controls class="w-full segment-player"
-                     data-start="{{ seg.start_offset }}"
-                     data-end="{{ seg.end_offset }}">
-                <source src="{{ rec.file.url }}" type="audio/mpeg">
-              </audio>
-
-              <!-- Speech content -->
-              {% if seg.segment_type == "speech" or seg.segment_type == "speech_over_music" %}
-              <div class="mt-2 space-y-1">
-                {% if seg.language %}
-                <p class="text-xs text-gray-400">Language: {{ seg.language }}{% if seg.confidence %} ({{ seg.confidence|floatformat:0 }}% confidence){% endif %}</p>
-                {% endif %}
-                {% if seg.text %}
-                <p class="text-sm text-gray-800 dark:text-gray-200">{{ seg.text }}</p>
-                {% endif %}
-                {% if seg.text_original and seg.text_original != seg.text %}
-                <details class="text-xs">
-                  <summary class="cursor-pointer text-gray-400 hover:text-gray-600">Raw STT</summary>
-                  <p class="mt-1 text-gray-500 dark:text-gray-400 italic">{{ seg.text_original }}</p>
-                </details>
-                {% endif %}
-                {% if seg.text_english %}
-                <details class="text-xs">
-                  <summary class="cursor-pointer text-gray-400 hover:text-gray-600">English</summary>
-                  <p class="mt-1 text-gray-500 dark:text-gray-400">{{ seg.text_english }}</p>
-                </details>
-                {% endif %}
-              </div>
-              {% endif %}
-
-              <!-- Music / fingerprint content -->
-              {% if seg.segment_type == "music" %}
-              <div class="mt-2">
-                {% if seg.song %}
-                <p class="text-sm font-medium text-gray-800 dark:text-gray-200">
-                  {{ seg.song.title }}{% if seg.song.artist %} &mdash; {{ seg.song.artist }}{% endif %}
-                </p>
-                {% if seg.song.mbid %}
-                <a href="https://musicbrainz.org/recording/{{ seg.song.mbid }}"
-                   target="_blank" rel="noopener noreferrer"
-                   class="text-xs text-blue-600 dark:text-blue-400 hover:underline">
-                  View on MusicBrainz
-                </a>
-                {% endif %}
-                {% else %}
-                <p class="text-xs text-gray-400 italic">Not identified</p>
-                {% endif %}
-              </div>
-              {% endif %}
-
-            </div>
-            {% empty %}
-            <p class="text-sm text-gray-500">No segments found.</p>
-            {% endfor %}
-          </div>
-        </div>
-        {% endif %}
-
-        <!-- Summary -->
-        {% if rec.chunk_summary %}
-        <div class="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-lg p-4">
-          <h3 class="font-semibold text-gray-900 dark:text-gray-100 mb-2">Summary</h3>
-          <p class="text-sm text-gray-800 dark:text-gray-200 mb-3">{{ rec.chunk_summary.summary_text }}</p>
-          {% if rec.chunk_summary.tags.all %}
-          <div class="flex flex-wrap gap-2">
-            {% for tag in rec.chunk_summary.tags.all %}
-            <span class="px-2 py-0.5 rounded-full bg-yellow-200 dark:bg-yellow-800 text-yellow-900 dark:text-yellow-100 text-xs">
-              {{ tag.name }}
-            </span>
-            {% endfor %}
-          </div>
-          {% endif %}
-        </div>
-        {% endif %}
-
-      </div>
-    </details>
-
-    {% empty %}
-    <p class="text-gray-500 dark:text-gray-400 text-center mt-10">No recordings found for this time range.</p>
-    {% endfor %}
-  </div>
+<div>
+<a href="{% url 'radio_detail' radio.slug %}" class="button">
+← Back to Radio
+</a>
+</div>
 
 </div>
 
-<!-- Segment player time-constraint script -->
+
+<!-- FILTER -->
+
+<form method="get" class="panel filter-panel">
+
+<div class="filter-grid">
+
+<div>
+<label>Start</label>
+<input type="datetime-local" name="start" value="{{ start }}">
+</div>
+
+<div>
+<label>End</label>
+<input type="datetime-local" name="end" value="{{ end }}">
+</div>
+
+<div class="filter-actions">
+<button type="submit" class="button">Filter</button>
+
+{% if start or end %}
+<a href="?" class="button-small">Clear</a>
+{% endif %}
+</div>
+
+</div>
+
+</form>
+
+
+<!-- RECORDINGS -->
+
+<div class="recordings-list">
+
+{% for rec in recordings %}
+
+<details class="recording-block">
+
+<summary class="recording-summary">
+
+<div class="rec-stream">
+{{ rec.stream.name }}
+</div>
+
+<div class="rec-time">
+{{ rec.start_time|date:"Y-m-d H:i:s" }}
+→
+{{ rec.end_time|date:"H:i:s" }}
+
+{% if rec.duration %}
+({{ rec.duration }})
+{% endif %}
+</div>
+
+<div class="rec-stages">
+
+{% include "components/stage_badge.html" with label="Seg" status=rec.segmentation_status %}
+{% include "components/stage_badge.html" with label="FP" status=rec.fingerprinting_status %}
+{% include "components/stage_badge.html" with label="Trans" status=rec.transcription_status %}
+{% include "components/stage_badge.html" with label="Sum" status=rec.summarization_status %}
+
+</div>
+
+</summary>
+
+
+<div class="recording-content">
+
+
+<!-- FULL RECORDING -->
+
+<div class="recording-player">
+
+<div class="section-label">Full recording</div>
+
+<audio controls>
+<source src="{{ rec.file.url }}" type="audio/mpeg">
+</audio>
+
+<div class="player-actions">
+
+<a href="{{ rec.file.url }}" download class="button-small">
+Download
+</a>
+
+{% if request.user.is_staff %}
+<a href="{% url 'recording_delete' slug=radio.slug recording_id=rec.id %}" class="button-small danger">
+Delete
+</a>
+{% endif %}
+
+</div>
+
+</div>
+
+
+<!-- ERRORS -->
+
+{% if rec.segmentation_status == "failed" or rec.fingerprinting_status == "failed" or rec.transcription_status == "failed" or rec.summarization_status == "failed" %}
+
+<div class="pipeline-error">
+
+<div class="section-label">Pipeline errors</div>
+
+<pre>{{ rec.analysis_error }}</pre>
+
+</div>
+
+{% endif %}
+
+
+<!-- SEGMENTS -->
+
+{% if rec.segmentation_status == "done" %}
+
+<div class="segments">
+
+<div class="section-label">
+Segments ({{ rec.segments.count }})
+</div>
+
+{% for seg in rec.segments.all %}
+
+<div class="segment-block">
+
+<div class="segment-header">
+
+<span class="segment-type type-{{ seg.segment_type }}">
+{{ seg.get_segment_type_display }}
+</span>
+
+<span class="segment-time">
+{{ seg.start_offset|format_seconds }}
+→
+{{ seg.end_offset|format_seconds }}
+</span>
+
+</div>
+
+
+<audio controls preload="metadata"
+       src="{{ rec.file.url }}"
+       data-start="{{ seg.start_offset }}"
+       data-end="{{ seg.end_offset }}"
+       class="segment-player">
+</audio>
+
+
+<!-- SPEECH -->
+
+{% if seg.segment_type == "speech" or seg.segment_type == "speech_over_music" %}
+
+<div class="segment-text">
+
+{% if seg.language %}
+<div class="segment-meta">
+Language: {{ seg.language }}
+{% if seg.confidence %}
+({{ seg.confidence|floatformat:0 }}%)
+{% endif %}
+</div>
+{% endif %}
+
+{% if seg.text %}
+<div class="segment-transcript">
+{{ seg.text }}
+</div>
+{% endif %}
+
+{% if seg.text_original and seg.text_original != seg.text %}
+<details class="segment-extra">
+<summary>Raw STT</summary>
+<p>{{ seg.text_original }}</p>
+</details>
+{% endif %}
+
+{% if seg.text_english %}
+<details class="segment-extra">
+<summary>English</summary>
+<p>{{ seg.text_english }}</p>
+</details>
+{% endif %}
+
+</div>
+
+{% endif %}
+
+
+<!-- MUSIC -->
+
+{% if seg.segment_type == "music" %}
+
+<div class="segment-music">
+
+{% if seg.song %}
+
+<div class="song-title">
+{{ seg.song.title }}
+{% if seg.song.artist %}
+— {{ seg.song.artist }}
+{% endif %}
+</div>
+
+{% if seg.song.mbid %}
+<a href="https://musicbrainz.org/recording/{{ seg.song.mbid }}" target="_blank">
+MusicBrainz
+</a>
+{% endif %}
+
+{% else %}
+
+<div class="song-unknown">Not identified</div>
+
+{% endif %}
+
+</div>
+
+{% endif %}
+
+</div>
+
+{% empty %}
+
+<div class="empty-note">No segments found.</div>
+
+{% endfor %}
+
+</div>
+
+{% endif %}
+
+
+<!-- SUMMARY -->
+
+{% if rec.chunk_summary %}
+
+<div class="summary-block">
+
+<div class="section-label">Summary</div>
+
+<div class="summary-text">
+{{ rec.chunk_summary.summary_text }}
+</div>
+
+{% if rec.chunk_summary.tags.all %}
+
+<div class="tag-list">
+
+{% for tag in rec.chunk_summary.tags.all %}
+<span class="tag">{{ tag.name }}</span>
+{% endfor %}
+
+</div>
+
+{% endif %}
+
+</div>
+
+{% endif %}
+
+</div>
+
+</details>
+
+{% empty %}
+
+<div class="empty-note center">
+No recordings found for this time range.
+</div>
+
+{% endfor %}
+
+</div>
+
+</div>
+
+
 <script>
-document.querySelectorAll('.segment-player').forEach(function(audio) {
-  var start = parseFloat(audio.dataset.start);
-  var end   = parseFloat(audio.dataset.end);
-  audio.addEventListener('play', function() {
-    if (audio.currentTime < start || audio.currentTime >= end)
-      audio.currentTime = start;
+
+document.addEventListener("DOMContentLoaded", function () {
+
+  const players = document.querySelectorAll(".segment-player");
+
+  players.forEach(player => {
+
+    const start = parseFloat(player.dataset.start);
+    const end = parseFloat(player.dataset.end);
+
+    let stopping = false;
+
+    player.addEventListener("play", () => {
+      if (player.currentTime < start || player.currentTime > end) {
+        player.currentTime = start;
+      }
+    });
+
+    player.addEventListener("timeupdate", () => {
+      if (!stopping && player.currentTime >= end) {
+        stopping = true;
+        player.pause();
+        player.currentTime = start;
+        stopping = false;
+      }
+    });
+
   });
-  audio.addEventListener('timeupdate', function() {
-    if (audio.currentTime >= end) {
-      audio.pause();
-      audio.currentTime = start;
-    }
-  });
+
 });
+
 </script>
-{% endblock content %}
+
+{% endblock %}

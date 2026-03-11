@@ -1,5 +1,5 @@
 """
-Daemon that identifies songs in music segments via AcoustID fingerprinting.
+Daemon that identifies songs in music segments via Shazam fingerprinting.
 
 Upstream: segmentation must be done/skipped.
 Independent of transcription — can run in parallel.
@@ -12,8 +12,6 @@ Usage:
 
 import logging
 
-from django.conf import settings as django_settings
-
 from radios.models import Song
 from radios.analysis.fingerprinter import fingerprint_segment
 from radios.management.commands._analysis_base import AnalysisStageCommand
@@ -22,20 +20,12 @@ logger = logging.getLogger("broadcast_analysis")
 
 
 class Command(AnalysisStageCommand):
-    help = "Identify songs in music segments via AcoustID fingerprinting."
+    help = "Identify songs in music segments via Shazam fingerprinting."
 
     stage_name = "fingerprinting"
     upstream_done_fields = ["segmentation_status"]
 
     def process_one(self, recording, file_path, check_fn):
-        api_key = getattr(django_settings, "ACOUSTID_API_KEY", "")
-        if not api_key:
-            logger.warning(
-                "[%s] ACOUSTID_API_KEY is not set — skipping fingerprinting.",
-                recording.id,
-            )
-            return
-
         music_segments = list(recording.segments.filter(segment_type="music"))
         logger.info(
             "[%s] Fingerprinting %d music segment(s)...",
@@ -45,7 +35,7 @@ class Command(AnalysisStageCommand):
         for seg in music_segments:
             check_fn()
             result = fingerprint_segment(
-                file_path, seg.start_offset, seg.end_offset, api_key,
+                file_path, seg.start_offset, seg.end_offset,
             )
             if result:
                 song = Song.get_or_create_from_fingerprint(result)

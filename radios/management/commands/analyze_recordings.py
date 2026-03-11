@@ -313,17 +313,12 @@ class Command(BaseCommand):
         from radios.models import Song
         from radios.analysis.fingerprinter import fingerprint_segment
 
-        api_key = getattr(settings, "ACOUSTID_API_KEY", "")
-        if not api_key:
-            logger.warning("[%s] ACOUSTID_API_KEY not set — skipping fingerprinting.", recording.id)
-            return
-
         music_segments = list(recording.segments.filter(segment_type="music"))
         logger.info("[%s] Fingerprinting %d music segment(s)...", recording.id, len(music_segments))
 
         for seg in music_segments:
             check()
-            result = fingerprint_segment(file_path, seg.start_offset, seg.end_offset, api_key)
+            result = fingerprint_segment(file_path, seg.start_offset, seg.end_offset)
             if result:
                 song = Song.get_or_create_from_fingerprint(result)
                 seg.song = song

@@ -1,77 +1,21 @@
 {% extends "base.html" %}
 {% block title %}System Dashboard{% endblock %}
 
-{% block head %}
-<style>
-  .panel {
-    background: #0d1117;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    padding: 1rem 1.25rem;
-    margin-bottom: 1.25rem;
-  }
-  .panel-title {
-    font-size: 0.7rem;
-    letter-spacing: 0.12em;
-    color: #8b949e;
-    margin-bottom: 0.75rem;
-    text-transform: uppercase;
-  }
-  .led-green { color: #3fb950; }
-  .led-red   { color: #f85149; }
-  .led-amber { color: #d29922; }
-  .led-gray  { color: #484f58; }
-  .stat-box {
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 4px;
-    padding: 0.75rem 1rem;
-    min-width: 160px;
-  }
-  .stat-label { font-size: 0.65rem; letter-spacing: 0.1em; color: #8b949e; text-transform: uppercase; }
-  .stat-value { font-size: 1.4rem; color: #e6edf3; font-weight: 600; }
-  .mono-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
-  .mono-table th {
-    text-align: left;
-    font-size: 0.65rem;
-    letter-spacing: 0.1em;
-    color: #8b949e;
-    border-bottom: 1px solid #30363d;
-    padding: 0.3rem 0.5rem;
-    text-transform: uppercase;
-  }
-  .mono-table td { padding: 0.3rem 0.5rem; color: #c9d1d9; border-bottom: 1px solid #21262d; }
-  .mono-table tr:last-child td { border-bottom: none; }
-  .num-fail { color: #f85149; font-weight: 700; }
-  .num-run  { color: #d29922; }
-  .num-done { color: #3fb950; }
-  .num-mute { color: #484f58; }
-  .error-excerpt {
-    font-size: 0.75rem;
-    color: #8b949e;
-    max-width: 400px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .sub-title {
-    font-size: 0.68rem;
-    letter-spacing: 0.08em;
-    color: #8b949e;
-    text-transform: uppercase;
-    margin: 0.75rem 0 0.4rem;
-  }
-</style>
-{% endblock %}
-
 {% block content %}
 <div class="font-mono" style="color:#c9d1d9;">
 
   <!-- Header -->
-  <div class="panel" style="display:flex; justify-content:space-between; align-items:center;">
-    <span style="font-size:1.1rem; font-weight:700; color:#d29922; letter-spacing:0.12em;">■ SYSTEM DASHBOARD</span>
-    <span style="font-size:0.75rem; color:#8b949e;">{{ now|date:"Y-m-d H:i:s" }} UTC</span>
+<div class="console-header">
+
+  <div class="console-title">
+    ■ SYSTEM DASHBOARD
   </div>
+
+  <div class="console-meta">
+    {{ now|date:"Y-m-d H:i:s" }} UTC
+  </div>
+
+</div>
 
   <!-- Global Pipeline LEDs -->
   <div class="panel">

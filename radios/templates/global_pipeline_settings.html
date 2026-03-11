@@ -3,54 +3,146 @@
 {% block title %}Global Pipeline Settings{% endblock %}
 
 {% block content %}
-<div class="space-y-8 max-w-2xl mx-auto">
 
-    <h1 class="text-2xl font-bold">Global Pipeline Settings</h1>
-    <p class="text-gray-500 dark:text-gray-400">
-        These are site-wide kill switches. Disabling a stage here overrides all per-stream settings
-        and disables all downstream stages too.
-    </p>
+<!-- HEADER -->
 
-    <!-- Messages -->
-    {% for message in messages %}
-    <div class="p-3 rounded-lg {% if message.tags == 'success' %}bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200{% else %}bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200{% endif %}">
-        {{ message }}
-    </div>
-    {% endfor %}
+<div class="console-header">
 
-    <!-- Stage dependency diagram -->
-    <div class="p-4 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
-        <h2 class="text-sm font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">Stage Dependencies</h2>
-        <div class="flex flex-wrap items-center gap-2 text-sm">
-            {% for stage in pipeline_stages %}
-            <span class="px-2 py-1 rounded bg-gray-100 dark:bg-gray-700 capitalize">{{ stage }}</span>
-            {% if not forloop.last %}<span class="text-gray-400">&rarr;</span>{% endif %}
-            {% endfor %}
-        </div>
-    </div>
+  <div class="console-title">
+    ■ GLOBAL PIPELINE
+  </div>
 
-    <!-- Form -->
-    <div class="p-4 rounded-xl border border-yellow-300 dark:border-yellow-700 bg-white dark:bg-gray-800 shadow-sm">
-        <h2 class="text-lg font-semibold mb-4">Enable / Disable Stages</h2>
-        <form method="post" class="space-y-4">
-            {% csrf_token %}
-            {% for field in form %}
-            <label class="flex items-center gap-3 cursor-pointer">
-                {{ field }}
-                <div>
-                    <span class="text-sm font-medium">{{ field.label }}</span>
-                    {% if field.help_text %}
-                    <p class="text-xs text-gray-400 dark:text-gray-500">{{ field.help_text }}</p>
-                    {% endif %}
-                </div>
-            </label>
-            {% endfor %}
-            <button type="submit"
-                    class="mt-2 px-4 py-2 rounded-lg bg-yellow-500 text-white hover:bg-yellow-600 transition text-sm font-medium">
-                Save Global Settings
-            </button>
-        </form>
-    </div>
+  <div class="console-meta">
+      Site-wide pipeline kill switches
+  </div>
 
 </div>
+
+
+
+
+<!-- DESCRIPTION -->
+
+<div class="panel">
+
+  <div class="radio-meta">
+    These switches control the entire processing pipeline.
+    Disabling a stage here overrides all per-stream settings and disables all downstream stages.
+  </div>
+
+</div>
+
+
+
+<!-- SYSTEM MESSAGES -->
+
+{% for message in messages %}
+
+<div class="panel">
+
+  {% if message.tags == "success" %}
+  <span class="led-green">●</span>
+  {% else %}
+  <span class="led-red">●</span>
+  {% endif %}
+
+  {{ message }}
+
+</div>
+
+{% endfor %}
+
+
+
+<!-- STAGE DEPENDENCY -->
+
+<div class="panel">
+
+  <div class="panel-title">Pipeline Dependencies</div>
+
+  <div class="pipeline-chain">
+
+    {% for stage in pipeline_stages %}
+
+      <span class="pipeline-stage">
+        {{ stage|upper }}
+      </span>
+
+      {% if not forloop.last %}
+      <span class="pipeline-arrow">→</span>
+      {% endif %}
+
+    {% endfor %}
+
+  </div>
+
+</div>
+
+
+
+<!-- SETTINGS FORM -->
+
+<div class="panel">
+
+  <div class="panel-title">Enable / Disable Stages</div>
+
+  <form method="post">
+
+    {% csrf_token %}
+
+    <table class="mono-table">
+
+      <thead>
+        <tr>
+          <th>Stage</th>
+          <th>Enabled</th>
+        </tr>
+      </thead>
+
+      <tbody>
+
+      {% for field in form %}
+
+      <tr>
+
+        <td>
+
+          <div class="pipeline-field">
+
+            <div>
+              {{ field.label }}
+            </div>
+
+            {% if field.help_text %}
+            <div class="pipeline-help">
+              {{ field.help_text }}
+            </div>
+            {% endif %}
+
+          </div>
+
+        </td>
+
+        <td>
+          {{ field }}
+        </td>
+
+      </tr>
+
+      {% endfor %}
+
+      </tbody>
+
+    </table>
+
+    <div class="form-actions">
+      <button type="submit" class="button">
+        Save Global Settings
+      </button>
+    </div>
+
+  </form>
+
+</div>
+
 {% endblock %}

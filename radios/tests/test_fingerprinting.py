@@ -82,7 +82,7 @@ class FingerprintingTest(django.test.SimpleTestCase):
             end   = seg["end"]
             dur   = end - start
             try:
-                result = fingerprint_segment(str(TEST_MP3), start, end, api_key)
+                result = fingerprint_segment(str(TEST_MP3), start, end)
             except Exception as exc:
                 raised = True
                 print(f"{i:>3}  {fmt_time(start):>7}  {fmt_time(end):>7}  {fmt_dur(dur):>8}  ERROR: {exc}")
@@ -158,7 +158,6 @@ class FingerprintSingleFileTest(django.test.SimpleTestCase):
             str(TEST_MP3),
             start=-_BOUNDARY_TRIM,
             end=file_duration + _BOUNDARY_TRIM,
-            api_key=api_key,
         )
 
         if result:

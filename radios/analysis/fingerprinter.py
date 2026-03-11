@@ -1,3 +1,13 @@
+"""
+Shazam-based music fingerprinting via ShazamIO.
+
+Extracts a clip from the source audio with ffmpeg, then uses the Shazam
+recognition API (reverse-engineered, no API key required) to identify it.
+
+Previous implementation used AcoustID/MusicBrainz — see fingerprinter_acoustid.py.
+"""
+
+import asyncio
 import dataclasses
 import logging
 import os
@@ -7,7 +17,6 @@ from typing import Optional
 
 logger = logging.getLogger("broadcast_analysis")
 
-_MIN_SCORE = 0.15
 _MIN_DURATION = 30.0
 _MAX_CLIP = 120.0
 _BOUNDARY_TRIM = 10.0
@@ -15,51 +24,54 @@ _BOUNDARY_TRIM = 10.0
 
 @dataclasses.dataclass
 class FingerprintResult:
+    """Identified track metadata — consumed by Song.get_or_create_from_fingerprint()."""
     title: str
     artist: str
     score: float
-    mbid: str
+    mbid: str  # Shazam track key (reuses field name for backward compat)
 
 
 def fingerprint_segment(
     source_path: str,
     start: float,
     end: float,
-    api_key: str,
 ) -> Optional[FingerprintResult]:
     """
     Identify the song in [start, end) seconds of source_path.
 
-    Extracts up to _MAX_CLIP seconds starting at `start` to a temp WAV
-    file with ffmpeg, then submits the Chromaprint fingerprint to the
-    AcoustID web service.
+    Extracts up to _MAX_CLIP seconds (after trimming _BOUNDARY_TRIM from
+    each edge) to a temp WAV file with ffmpeg, then submits it to the
+    Shazam recognition service via ShazamIO.
 
-    Returns the best FingerprintResult or None if:
-    - The segment is shorter than _MIN_DURATION
-    - fpcalc is not on $PATH
-    - No match at or above _MIN_SCORE is found
-    - The AcoustID service returns an error
+    Returns a FingerprintResult or None if:
+    - The segment is shorter than _MIN_DURATION after boundary trim
+    - ffmpeg fails to extract the clip
+    - Shazam returns no match
+    - shazamio is not installed
     """
     try:
-        import acoustid
+        from shazamio import Shazam
     except ImportError:
-        logger.error("pyacoustid is not installed — cannot fingerprint")
+        logger.error("shazamio is not installed — cannot fingerprint")
         return None
 
     start += _BOUNDARY_TRIM
     end -= _BOUNDARY_TRIM
     duration = end - start
     if duration < _MIN_DURATION:
-        logger.debug("Segment too short to fingerprint after boundary trim (%.1fs)", duration)
+        logger.debug(
+            "Segment too short to fingerprint after boundary trim (%.1fs)", duration,
+        )
         return None
 
     clip_duration = min(duration, _MAX_CLIP)
 
     tmp_path = None
     try:
-        # Create a temporary file path and close it immediately so ffmpeg can write
         tmp_dir = "/dev/shm" if os.path.exists("/dev/shm") else None
-        tmp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False, dir=tmp_dir)
+        tmp_file = tempfile.NamedTemporaryFile(
+            suffix=".wav", delete=False, dir=tmp_dir,
+        )
         tmp_path = tmp_file.name
         tmp_file.close()
 
@@ -67,9 +79,10 @@ def fingerprint_segment(
             "ffmpeg",
             "-y",
             "-ss", str(start),
+            "-t", str(clip_duration),
             "-i", source_path,
-            "-ac", "1",        # mono
-            "-ar", "44100",    # standard sample rate
+            "-ac", "1",
+            "-ar", "44100",
             "-f", "wav",
             tmp_path,
         ]
@@ -83,33 +96,8 @@ def fingerprint_segment(
             )
             return None
 
-        # Fingerprint and lookup (let pyacoustid handle parsing)
-        try:
-            response = acoustid.match(api_key, tmp_path)
-        except acoustid.NoBackendError:
-            logger.error("fpcalc not found — install libchromaprint-tools or chromaprint-tools")
-            return None
-        except acoustid.FingerprintGenerationError as exc:
-            logger.error("Chromaprint fingerprint generation failed: %s", exc)
-            return None
-        except acoustid.WebServiceError as exc:
-            logger.error("AcoustID web service error: %s", exc)
-            return None
-
-        best = None
-        for score, mbid, title, artist in response:
-            if not title:
-                continue
-            if score >= _MIN_SCORE:
-                if not best or score > best.score:
-                    best = FingerprintResult(
-                        title=title,
-                        artist=artist or "",
-                        score=score,
-                        mbid=mbid or "",
-                    )
-
-        return best
+        result = _recognize_sync(Shazam, tmp_path)
+        return result
 
     finally:
         if tmp_path:
@@ -117,3 +105,49 @@ def fingerprint_segment(
                 os.unlink(tmp_path)
             except OSError:
                 pass
+
+
+def _recognize_sync(shazam_cls, audio_path: str) -> Optional[FingerprintResult]:
+    """Run ShazamIO's async recognize() from synchronous code."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        # Already inside an event loop (e.g. Jupyter, Django async view).
+        # Create a new loop in a thread to avoid blocking.
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(asyncio.run, _recognize(shazam_cls, audio_path))
+            return future.result(timeout=120)
+    else:
+        return asyncio.run(_recognize(shazam_cls, audio_path))
+
+
+async def _recognize(shazam_cls, audio_path: str) -> Optional[FingerprintResult]:
+    """Call Shazam recognition and parse the response into a FingerprintResult."""
+    shazam = shazam_cls()
+    try:
+        response = await shazam.recognize(audio_path)
+    except Exception as exc:
+        logger.error("Shazam recognition failed: %s", exc)
+        return None
+
+    track = response.get("track")
+    if not track:
+        return None
+
+    title = track.get("title", "").strip()
+    artist = track.get("subtitle", "").strip()
+    track_key = track.get("key", "")
+
+    if not title:
+        return None
+
+    return FingerprintResult(
+        title=title,
+        artist=artist,
+        score=1.0,
+        mbid=str(track_key),
+    )

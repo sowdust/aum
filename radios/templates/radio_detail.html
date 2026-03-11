@@ -5,112 +5,170 @@
 
 {% block content %}
 
-<div class="space-y-8">
+<div class="radio-header panel">
 
-    <!-- Header: Logo + Title -->
-    <div class="flex flex-col sm:flex-row items-center sm:items-start sm:space-x-6 text-center sm:text-left">
-        {% if radio.logo %}
-            <img src="{{ radio.logo.url }}" alt="{{ radio.name }} logo" class="w-32 h-32 rounded-xl object-cover shadow-md dark:shadow-none" />
-        {% endif %}
-
-        <div class="mt-4 sm:mt-0">
-            <h1 class="text-3xl font-bold">{{ radio.name }}</h1>
-            {% if radio.frequency %}
-                <p class="text-gray-600 dark:text-gray-300 mt-1">📡 {{ radio.frequency }}</p>
-            {% endif %}
+    {% if radio.logo %}
+        <div class="radio-logo">
+            <img src="{{ radio.logo.url }}" alt="{{ radio.name }} logo">
         </div>
-        <div class="flex justify-end">
-            <a href="{% url 'radio_recordings' radio.slug %}"
-               class="px-5 py-2.5 rounded-xl font-medium shadow
-                      bg-blue-600 text-white hover:bg-blue-700
-                      dark:bg-blue-500 dark:hover:bg-blue-600
-                      transition">
-                Archive
-            </a>
-        </div>
-    </div>
-
-    <!-- Grid Information -->
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-        <!-- Left Column -->
-        <div class="space-y-4">
-            <div class="p-4 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
-                <h2 class="text-xl font-semibold mb-2">General Information</h2>
-                <ul class="space-y-1">
-                    <li><strong>Country:</strong> {{ radio.country.name }}</li>
-                    <li><strong>City:</strong> {{ radio.city }}</li>
-                    <li><strong>Language:</strong> {{ radio.language.name }}</li>
-                    {% if radio.website %}
-                        <li><strong>Website:</strong> <a href="{{ radio.website }}" class="text-blue-600 dark:text-blue-400 underline" target="_blank">Visit</a></li>
-                    {% endif %}
-                </ul>
-            </div>
-
-            <div class="p-4 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
-                <h2 class="text-xl font-semibold mb-2">Broadcast Types</h2>
-                <div class="flex flex-wrap gap-2">
-                    {% for item in radio.broadcast_type.all %}
-                        <span class="px-3 py-1 rounded-full bg-gray-200 dark:bg-gray-700 text-sm">{{ item }}</span>
-                    {% endfor %}
-                </div>
-            </div>
-        </div>
-
-        <!-- Right Column -->
-        <div class="space-y-4">
-            {% if radio.latitude and radio.longitude %}
-            <div class="p-4 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
-                <h2 class="text-xl font-semibold mb-2">Geolocation</h2>
-                <p><strong>Latitude:</strong> {{ radio.latitude }}</p>
-                <p><strong>Longitude:</strong> {{ radio.longitude }}</p>
-            </div>
-            {% endif %}
-
-            {% if radio.description %}
-            <div class="p-4 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
-                <h2 class="text-xl font-semibold mb-2">Description</h2>
-                <p class="whitespace-pre-line">{{ radio.description }}</p>
-            </div>
-            {% endif %}
-        </div>
-    </div>
-
-    <!-- Streaming Section -->
-    {% if radio.streams %}
-    {% for stream in radio.streams.all %}
-    <div class="p-4 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
-        <div class="flex items-center justify-between mb-3">
-            <h2 class="text-xl font-semibold">{{ stream.name }}</h2>
-            <div class="flex items-center gap-3">
-                {% if not stream.is_active %}
-                <span class="text-xs px-2 py-0.5 rounded bg-gray-200 dark:bg-gray-700 text-gray-500">inactive</span>
-                {% endif %}
-                {% if is_owner or is_admin %}
-                <a href="{% url 'stream_settings' radio.slug stream.id %}"
-                   class="text-xs px-3 py-1 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 transition">
-                    Settings
-                </a>
-                {% endif %}
-            </div>
-        </div>
-        <audio controls class="w-full">
-            <source src="{{ stream.url }}" type="audio/mpeg">
-            Your browser does not support the audio element.
-        </audio>
-    </div>
-    {% endfor %}
     {% endif %}
 
-    {% if is_admin %}
-    <div class="flex justify-end">
-        <a href="{% url 'global_pipeline_settings' %}"
-           class="text-sm text-yellow-600 dark:text-yellow-400 hover:underline">
-            Global Pipeline Settings
+    <div class="radio-title">
+        <h1>{{ radio.name }}</h1>
+
+        {% if radio.frequency %}
+        <div class="radio-meta">📡 {{ radio.frequency }}</div>
+        {% endif %}
+    </div>
+
+    <div class="radio-actions">
+        <a href="{% url 'radio_recordings' radio.slug %}" class="button">
+            Archive
         </a>
+    </div>
+
+</div>
+
+
+<div class="radio-grid">
+
+    <!-- GENERAL INFO -->
+    <div class="panel">
+        <div class="panel-title">General Information</div>
+
+        <table class="mono-table">
+            <tr>
+                <td>Country</td>
+                <td>{{ radio.country.name }}</td>
+            </tr>
+
+            <tr>
+                <td>City</td>
+                <td>{{ radio.city }}</td>
+            </tr>
+
+            <tr>
+                <td>Language</td>
+                <td>{{ radio.language.name }}</td>
+            </tr>
+
+            {% if radio.website %}
+            <tr>
+                <td>Website</td>
+                <td>
+                    <a href="{{ radio.website }}" target="_blank">Visit</a>
+                </td>
+            </tr>
+            {% endif %}
+        </table>
+
+    </div>
+
+
+    <!-- BROADCAST TYPES -->
+    <div class="panel">
+        <div class="panel-title">Broadcast Types</div>
+
+        <div class="tag-list">
+            {% for item in radio.broadcast_type.all %}
+                <span class="tag">{{ item }}</span>
+            {% endfor %}
+        </div>
+
+    </div>
+
+
+    <!-- GEOLOCATION -->
+    {% if radio.latitude and radio.longitude %}
+    <div class="panel">
+
+        <div class="panel-title">Geolocation</div>
+
+        <table class="mono-table">
+            <tr>
+                <td>Latitude</td>
+                <td>{{ radio.latitude }}</td>
+            </tr>
+
+            <tr>
+                <td>Longitude</td>
+                <td>{{ radio.longitude }}</td>
+            </tr>
+        </table>
+
+    </div>
+    {% endif %}
+
+
+    <!-- DESCRIPTION -->
+    {% if radio.description %}
+    <div class="panel">
+
+        <div class="panel-title">Description</div>
+
+        <div class="text-block">
+            {{ radio.description }}
+        </div>
+
     </div>
     {% endif %}
 
 </div>
 
-{% endblock content %}
+
+<!-- STREAMS -->
+
+{% if radio.streams.all %}
+
+<div class="panel">
+<div class="panel-title">Streams</div>
+
+{% for stream in radio.streams.all %}
+
+<div class="stream-block">
+
+    <div class="stream-header">
+
+        <div class="stream-name">
+            {{ stream.name }}
+        </div>
+
+        <div class="stream-controls">
+
+            {% if not stream.is_active %}
+            <span class="status off">inactive</span>
+            {% endif %}
+
+            {% if is_owner or is_admin %}
+            <a href="{% url 'stream_settings' radio.slug stream.id %}" class="button-small">
+                Settings
+            </a>
+            {% endif %}
+
+        </div>
+
+    </div>
+
+    <audio controls class="audio-player">
+        <source src="{{ stream.url }}" type="audio/mpeg">
+        Your browser does not support the audio element.
+    </audio>
+
+</div>
+
+{% endfor %}
+
+</div>
+
+{% endif %}
+
+
+{% if is_admin %}
+<div class="admin-footer">
+    <a href="{% url 'global_pipeline_settings' %}">
+        Global Pipeline Settings
+    </a>
+</div>
+{% endif %}
+
+{% endblock %}

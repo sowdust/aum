@@ -245,21 +245,22 @@ def _get_segmenter():
 
 def _load_pcm(audio_path: str) -> Optional[np.ndarray]:
     """Convert audio to 16kHz mono PCM and return as float32 samples, or None on failure."""
-    pcm_path = tempfile.mktemp(suffix=".pcm")
-    try:
-        if not _to_pcm(audio_path, pcm_path):
-            return None
-        pcm_int16 = np.fromfile(pcm_path, dtype=np.int16)
-    finally:
+    with tempfile.NamedTemporaryFile(suffix=".pcm", delete=False) as f:
+        pcm_path = tempfile.mktemp(suffix=".pcm")
         try:
-            os.unlink(pcm_path)
-        except OSError:
-            pass
+            if not _to_pcm(audio_path, pcm_path):
+                return None
+            pcm_int16 = np.fromfile(pcm_path, dtype=np.int16)
+        finally:
+            try:
+                os.unlink(pcm_path)
+            except OSError:
+                pass
 
-    if len(pcm_int16) == 0:
-        return None
+        if len(pcm_int16) == 0:
+            return None
 
-    return pcm_int16.astype(np.float32) / 32768.0
+        return pcm_int16.astype(np.float32) / 32768.0
 
 
 def _compute_energy_db(

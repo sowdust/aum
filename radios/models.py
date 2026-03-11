@@ -853,6 +853,30 @@ class DailySummary(models.Model):
         return f"{self.radio.name} - {self.date}"
 
 
+class SongOccurrence(models.Model):
+    """
+    A single song identified within a music segment.
+    Long segments (e.g. DJ mixtapes) may contain multiple songs;
+    each gets its own SongOccurrence with absolute offsets.
+    """
+    segment = models.ForeignKey(
+        TranscriptionSegment, on_delete=models.CASCADE, related_name="song_occurrences",
+    )
+    song = models.ForeignKey(
+        Song, on_delete=models.CASCADE, related_name="segment_occurrences",
+    )
+    start_offset = models.FloatField(help_text="Absolute seconds from recording start")
+    end_offset = models.FloatField(help_text="Estimated absolute seconds from recording start")
+    confidence = models.FloatField(default=1.0)
+
+    class Meta:
+        ordering = ["start_offset"]
+        indexes = [models.Index(fields=["segment", "start_offset"])]
+
+    def __str__(self):
+        return f"{self.song} [{self.start_offset:.1f}-{self.end_offset:.1f}s]"
+
+
 class FeedAnomaly(models.Model):
     ANOMALY_TYPE_CHOICES = [
         ("speech", "Speech Detected"),
