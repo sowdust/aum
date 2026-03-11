@@ -34,7 +34,8 @@
 
       {% if user.is_staff %}
         <a href="/radios/" class="{% if request.path == '/radios/' %}active{% endif %}">
-      <a href="{% url 'admin_dashboard' %}" class="nav-admin">admin</a>
+      <a href="{% url 'admin_dashboard' %}" class="nav-admin">dashboard</a>
+      <a href="/admin/" class="nav-admin">admin</a>
       <a href="{% url 'global_pipeline_settings' %}" class="nav-pipeline">pipeline</a>
       {% endif %}
 
