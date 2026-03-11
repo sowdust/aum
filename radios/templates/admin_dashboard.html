@@ -1,0 +1,215 @@
+{% extends "base.html" %}
+{% block title %}System Dashboard{% endblock %}
+
+{% block head %}
+<style>
+  .panel {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 1rem 1.25rem;
+    margin-bottom: 1.25rem;
+  }
+  .panel-title {
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
+    color: #8b949e;
+    margin-bottom: 0.75rem;
+    text-transform: uppercase;
+  }
+  .led-green { color: #3fb950; }
+  .led-red   { color: #f85149; }
+  .led-amber { color: #d29922; }
+  .led-gray  { color: #484f58; }
+  .stat-box {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    padding: 0.75rem 1rem;
+    min-width: 160px;
+  }
+  .stat-label { font-size: 0.65rem; letter-spacing: 0.1em; color: #8b949e; text-transform: uppercase; }
+  .stat-value { font-size: 1.4rem; color: #e6edf3; font-weight: 600; }
+  .mono-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  .mono-table th {
+    text-align: left;
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+    color: #8b949e;
+    border-bottom: 1px solid #30363d;
+    padding: 0.3rem 0.5rem;
+    text-transform: uppercase;
+  }
+  .mono-table td { padding: 0.3rem 0.5rem; color: #c9d1d9; border-bottom: 1px solid #21262d; }
+  .mono-table tr:last-child td { border-bottom: none; }
+  .num-fail { color: #f85149; font-weight: 700; }
+  .num-run  { color: #d29922; }
+  .num-done { color: #3fb950; }
+  .num-mute { color: #484f58; }
+  .error-excerpt {
+    font-size: 0.75rem;
+    color: #8b949e;
+    max-width: 400px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sub-title {
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    color: #8b949e;
+    text-transform: uppercase;
+    margin: 0.75rem 0 0.4rem;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="font-mono" style="color:#c9d1d9;">
+
+  <!-- Header -->
+  <div class="panel" style="display:flex; justify-content:space-between; align-items:center;">
+    <span style="font-size:1.1rem; font-weight:700; color:#d29922; letter-spacing:0.12em;">■ SYSTEM DASHBOARD</span>
+    <span style="font-size:0.75rem; color:#8b949e;">{{ now|date:"Y-m-d H:i:s" }} UTC</span>
+  </div>
+
+  <!-- Global Pipeline LEDs -->
+  <div class="panel">
+    <div class="panel-title">Global Pipeline Stages</div>
+    <div style="display:flex; flex-wrap:wrap; gap:1.5rem;">
+      {% for stage, enabled in global_stage_flags.items %}
+      <span>
+        {% if enabled %}<span class="led-green">●</span>{% else %}<span class="led-red">●</span>{% endif %}
+        {{ stage|upper }}
+      </span>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Infrastructure Summary -->
+  <div class="panel">
+    <div class="panel-title">Infrastructure</div>
+    <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+      <div class="stat-box">
+        <div class="stat-label">Active Streams</div>
+        <div class="stat-value">{{ active_stream_count }}</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Transcription Backend</div>
+        <div class="stat-value" style="font-size:1rem;">{{ transcription_backend }}</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Summarization Backend</div>
+        <div class="stat-value" style="font-size:1rem;">{{ summarization_backend }}</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stage Counts -->
+  <div class="panel">
+    <div class="panel-title">Stage Counts</div>
+    <table class="mono-table">
+      <thead>
+        <tr>
+          <th>Stage</th>
+          <th>Pending</th>
+          <th>Running</th>
+          <th>Done</th>
+          <th>Failed</th>
+          <th>Skipped</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in stage_counts_list %}
+        <tr>
+          <td>{{ row.stage }}</td>
+          <td class="num-mute">{{ row.counts.pending|default:"0" }}</td>
+          <td class="num-run">{{ row.counts.running|default:"0" }}</td>
+          <td class="num-done">{{ row.counts.done|default:"0" }}</td>
+          <td>
+            {% with fail_count=row.counts.failed|default:0 %}
+              {% if fail_count %}<span class="num-fail">{{ fail_count }}</span>{% else %}<span class="num-mute">0</span>{% endif %}
+            {% endwith %}
+          </td>
+          <td class="num-mute">{{ row.counts.skipped|default:"0" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Currently Running -->
+  <div class="panel">
+    <div class="panel-title">Currently Running</div>
+    {% if not any_running %}
+      <span class="led-green">●</span> <span style="color:#8b949e;">NO ACTIVE JOBS</span>
+    {% else %}
+      {% for entry in running_stages_list %}
+        <div class="sub-title">{{ entry.stage|upper }}</div>
+        <table class="mono-table" style="margin-bottom:0.5rem;">
+          <thead>
+            <tr>
+              <th>Stream</th>
+              <th>Radio</th>
+              <th>Started</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for rec in entry.jobs %}
+            <tr>
+              <td>{{ rec.stream.name }}</td>
+              <td>
+                {% if rec.stream.radio %}
+                  <a href="{% url 'radio_detail' rec.stream.radio.slug %}" style="color:#58a6ff;">{{ rec.stream.radio.name }}</a>
+                {% else %}
+                  <span class="num-mute">—</span>
+                {% endif %}
+              </td>
+              <td>{{ rec.analysis_started_at|date:"Y-m-d H:i:s"|default:"—" }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% endfor %}
+    {% endif %}
+  </div>
+
+  <!-- Recent Failures -->
+  <div class="panel">
+    <div class="panel-title">Recent Failures</div>
+    {% if not failure_rows %}
+      <span class="led-green">●</span> <span style="color:#8b949e;">No recent failures</span>
+    {% else %}
+      <table class="mono-table">
+        <thead>
+          <tr>
+            <th>Timestamp</th>
+            <th>Stream</th>
+            <th>Radio</th>
+            <th>Stage</th>
+            <th>Error</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in failure_rows %}
+          <tr>
+            <td style="white-space:nowrap;">{{ row.timestamp|date:"Y-m-d H:i"|default:"—" }}</td>
+            <td>{{ row.stream_name }}</td>
+            <td>
+              {% if row.radio %}
+                <a href="{% url 'radio_detail' row.radio.slug %}" style="color:#58a6ff;">{{ row.radio.name }}</a>
+              {% else %}
+                <span class="num-mute">—</span>
+              {% endif %}
+            </td>
+            <td><span class="led-red">●</span> {{ row.stage }}</td>
+            <td><div class="error-excerpt" title="{{ row.error_excerpt }}">{{ row.error_excerpt|default:"(no details)" }}</div></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

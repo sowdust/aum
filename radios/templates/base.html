@@ -25,16 +25,20 @@
         <nav class="space-x-6 text-sm font-medium flex items-center">
           <a href="/radios/" class="hover:text-blue-600">All Radios</a>
 
-
     {% if user.is_authenticated %}
-           <p>Welcome, {{ user.username }}. Thanks for logging in.</p>
+            <p></p>
+             <a href="/admin/dashboard/" class="hover:text-blue-600">Dashboard</a>
+    {% endif %}
+    {% if user.is_authenticated %}
+           <p>Hi, {{ user.username }}. </p>
             <a href="/radios/create/" class="hover:text-blue-600">Add radio</a>
             {% if user.is_staff %}
+            <a href="{% url 'admin_dashboard' %}" class="hover:text-amber-400 text-amber-300">Dashboard</a>
             <a href="{% url 'global_pipeline_settings' %}" class="hover:text-yellow-600 text-yellow-500">Pipeline</a>
             {% endif %}
             <a href="/logout/" class="hover:text-blue-600">Logout</a>
     {% else %}
-          <p>Welcome, new user. Please log in.</p>
+          <p></p>
           <a href="/register/" class="hover:text-blue-600">Register</a>
           <a href="/login/" class="hover:text-blue-600">Login</a>
           <a href="/password-reset/" class="hover:text-blue-600">Reset PW</a>

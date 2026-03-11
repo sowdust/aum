@@ -10,6 +10,7 @@ urlpatterns = [
     path('radios/<slug:slug>/recordings/<uuid:recording_id>/delete', views.recording_delete, name='recording_delete'),
     path('radios/<slug:radio_slug>/streams/<int:stream_id>/settings/', views.stream_settings, name='stream_settings'),
     path('pipeline/settings/', views.global_pipeline_settings, name='global_pipeline_settings'),
+    path("admin/dashboard/", views.admin_dashboard, name="admin_dashboard"),
     path('', views.radios_list, name='index'),
     path("register/", views.register, name="register"),
     path("login/", auth_views.LoginView.as_view(template_name="accounts/login.html"), name="login"),

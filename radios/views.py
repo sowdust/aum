@@ -20,7 +20,9 @@ import os
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
-from .models import RadioMembership, GlobalPipelineSettings, PIPELINE_STAGES
+from django.db.models import Count, Q
+from django.utils import timezone
+from .models import RadioMembership, GlobalPipelineSettings, PIPELINE_STAGES, TranscriptionSettings, SummarizationSettings
 from .forms import StreamVisibilityForm, StreamPipelineForm, GlobalPipelineSettingsForm
 
 def edit_radio(request, slug):
@@ -92,6 +94,90 @@ def global_pipeline_settings(request):
         "form": form,
         "pipeline_stages": PIPELINE_STAGES,
     })
+
+
+@login_required
+def admin_dashboard(request):
+    if not request.user.is_staff:
+        raise PermissionDenied()
+
+    global_settings = GlobalPipelineSettings.get_settings()
+    transcription_cfg = TranscriptionSettings.get_settings()
+    summarization_cfg = SummarizationSettings.get_settings()
+
+    global_stage_flags = {
+        stage: getattr(global_settings, f"enable_{stage}")
+        for stage in PIPELINE_STAGES
+    }
+
+    active_stream_count = Stream.objects.filter(is_active=True).count()
+
+    ANALYSIS_STAGES = ["segmentation", "fingerprinting", "transcription", "summarization"]
+
+    stage_counts_list = []
+    for stage in ANALYSIS_STAGES:
+        status_field = f"{stage}_status"
+        rows = Recording.objects.values(status_field).annotate(n=Count("id"))
+        counts = {row[status_field]: row["n"] for row in rows}
+        stage_counts_list.append({"stage": stage, "counts": counts})
+
+    running_per_stage = {}
+    for stage in ANALYSIS_STAGES:
+        status_field = f"{stage}_status"
+        qs = (
+            Recording.objects
+            .filter(**{status_field: "running"})
+            .select_related("stream__radio")
+            .order_by("analysis_started_at")[:20]
+        )
+        running_per_stage[stage] = list(qs)
+
+    recent_failed_recs = (
+        Recording.objects
+        .filter(
+            Q(segmentation_status="failed") |
+            Q(fingerprinting_status="failed") |
+            Q(transcription_status="failed") |
+            Q(summarization_status="failed")
+        )
+        .select_related("stream__radio")
+        .order_by("-start_time")[:50]
+    )
+    failure_rows = []
+    for rec in recent_failed_recs:
+        for stage in ANALYSIS_STAGES:
+            if getattr(rec, f"{stage}_status") == "failed":
+                failure_rows.append({
+                    "recording_id": rec.id,
+                    "stage": stage,
+                    "stream_name": rec.stream.name,
+                    "radio": rec.stream.radio,
+                    "timestamp": rec.start_time,
+                    "error_excerpt": (getattr(rec, f"{stage}_error", "") or "")[:300],
+                })
+    failure_rows.sort(key=lambda r: r["timestamp"] or "", reverse=True)
+    failure_rows = failure_rows[:100]
+
+    running_stages_list = [
+        {"stage": stage, "jobs": running_per_stage[stage]}
+        for stage in ANALYSIS_STAGES
+        if running_per_stage[stage]
+    ]
+    any_running = bool(running_stages_list)
+
+    return render(request, "admin_dashboard.html", {
+        "global_stage_flags": global_stage_flags,
+        "pipeline_stages": PIPELINE_STAGES,
+        "active_stream_count": active_stream_count,
+        "stage_counts_list": stage_counts_list,
+        "running_stages_list": running_stages_list,
+        "failure_rows": failure_rows,
+        "transcription_backend": transcription_cfg.get_backend_display(),
+        "summarization_backend": summarization_cfg.get_backend_display(),
+        "any_running": any_running,
+        "now": timezone.now(),
+    })
+
 
 def radios_list(request):
     radios = Radio.objects.all()

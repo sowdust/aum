@@ -1,5 +1,8 @@
 # AUM — Project TODO
 
+- [ ] extract show name and songs from transcript
+- [ ] understand why fingerprinting songs doesnt fucking work
+
 ## Pipeline Stages
 - [x] record — `record_streams.py` (ffmpeg MP3 chunks)
 - [x] segment — `analysis/segmenter.py` (inaSpeechSegmenter CNN)
