@@ -4,6 +4,8 @@
 - [ ] understand why fingerprinting songs doesnt fucking work
 
 ## Pipeline Stages
+- [x] if key is not set or anything else, do not mark the process as completed.
+- 
 - [x] record — `record_streams.py` (ffmpeg MP3 chunks)
 - [x] segment — `analysis/segmenter.py` (inaSpeechSegmenter CNN)
 - [x] fingerprint — `analysis/fingerprinter.py` (pyacoustid + fpcalc)

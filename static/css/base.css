@@ -74,28 +74,29 @@ body {
   min-height:70vh;
 }
 
-
 /* -------------------------
    TOP BAR
 --------------------------*/
 
 .topbar{
   border-bottom:1px solid #30363d;
-  background:#161b22;
+  background:#0b0f14;
 }
 
 .topbar-inner{
   display:flex;
   justify-content:space-between;
   align-items:center;
-  padding:14px 0;
+  padding:12px 0;
 }
+
+/* TITLE */
 
 .site-title a{
   text-decoration:none;
   color:#d29922;
   font-weight:700;
-  letter-spacing:0.12em;
+  letter-spacing:0.14em;
 }
 
 .site-title a:hover{
@@ -109,23 +110,45 @@ body {
 
 .nav{
   display:flex;
-  gap:18px;
+  gap:16px;
   align-items:center;
-  font-size:0.85rem;
+  font-size:0.82rem;
+  text-transform:lowercase;
 }
+
+/* links */
 
 .nav a{
   text-decoration:none;
   color:#8b949e;
+  padding:2px 4px;
 }
 
 .nav a:hover{
   color:#58a6ff;
 }
 
-.nav-user{
-  color:#8b949e;
+/* separators */
+
+.nav a::before{
+  content:"/";
+  color:#484f58;
+  margin-right:4px;
 }
+
+.nav a:first-child::before{
+  content:"";
+  margin:0;
+}
+
+/* username */
+
+.nav-user{
+  color:#6e7681;
+  margin-left:10px;
+}
+
+/* admin links */
 
 .nav-admin{
   color:#d29922;
@@ -143,6 +166,20 @@ body {
   color:#f0b44c;
 }
 
+.site-title::after{
+  content:"_";
+  margin-left:4px;
+  animation:blink 1s infinite;
+}
+
+@keyframes blink{
+  0%,50%,100%{opacity:1;}
+  25%,75%{opacity:0;}
+}
+
+.nav a.active{
+  color:#58a6ff;
+}
 
 /* -------------------------
    FOOTER
@@ -181,16 +218,24 @@ body {
   background:#161b22;
   border:1px solid #30363d;
   border-radius:6px;
+
   padding:16px 18px;
   margin-bottom:20px;
+
+  box-shadow:0 0 0 1px rgba(0,0,0,0.2) inset;
 }
 
 .panel-title{
   font-size:0.7rem;
-  letter-spacing:0.12em;
+  letter-spacing:0.14em;
   text-transform:uppercase;
+
   color:#8b949e;
+
   margin-bottom:10px;
+  padding-bottom:6px;
+
+  border-bottom:1px solid #21262d;
 }
 
 
@@ -203,7 +248,14 @@ body {
   border:1px solid #30363d;
   padding:10px 14px;
   border-radius:4px;
+
   min-width:140px;
+
+  transition:border-color 0.15s;
+}
+
+.stat-box:hover{
+  border-color:#58a6ff;
 }
 
 .stat-label{
@@ -224,9 +276,9 @@ body {
    LED INDICATORS
 --------------------------*/
 
-.led-green{ color:#3fb950; }
-.led-red{ color:#f85149; }
-.led-amber{ color:#d29922; }
+.led-green{ color:#3fb950; text-shadow:0 0 4px rgba(63,185,80,0.4); }
+.led-red{ color:#f85149; text-shadow:0 0 4px rgba(248,81,73,0.4); }
+.led-amber{ color:#d29922; text-shadow:0 0 4px rgba(210,153,34,0.4); }
 .led-gray{ color:#484f58; }
 
 
@@ -258,7 +310,9 @@ body {
 .mono-table tr:last-child td{
   border-bottom:none;
 }
-
+.mono-table tr:hover td{
+  background:#0d1117;
+}
 
 /* -------------------------
    NUMERIC COLORS
@@ -440,6 +494,57 @@ body::before{
   width:100%;
 }
 
+/* -------------------------
+   CHECKBOXES
+--------------------------*/
+
+input[type="checkbox"]{
+  appearance:none;
+  -webkit-appearance:none;
+
+  width:16px;
+  height:16px;
+
+  border:1px solid #30363d;
+  background:#0d1117;
+
+  border-radius:3px;
+
+  cursor:pointer;
+  position:relative;
+}
+
+/* hover */
+
+input[type="checkbox"]:hover{
+  border-color:#58a6ff;
+}
+
+/* checked */
+
+input[type="checkbox"]:checked{
+  background:#238636;
+  border-color:#238636;
+}
+
+/* checkmark */
+
+input[type="checkbox"]:checked::after{
+  content:"";
+  position:absolute;
+
+  left:4px;
+  top:1px;
+
+  width:4px;
+  height:8px;
+
+  border:solid #ffffff;
+  border-width:0 2px 2px 0;
+
+  transform:rotate(45deg);
+}
+
 
 /* BUTTONS */
 
@@ -447,7 +552,10 @@ body::before{
   border:1px solid #30363d;
   padding:6px 12px;
   text-decoration:none;
+  background:#0d1117;
   color:#c9d1d9;
+  cursor:pointer;
+  transition:background 0.15s;
 }
 
 .button:hover{

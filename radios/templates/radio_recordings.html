@@ -98,8 +98,9 @@
 
 <div class="section-label">Full recording</div>
 
-<audio controls>
-<source src="{{ rec.file.url }}" type="audio/mpeg">
+<audio controls preload="none"
+       data-src="{{ rec.file.url }}"
+       class="full-player">
 </audio>
 
 <div class="player-actions">
@@ -115,6 +116,7 @@ Delete
 {% endif %}
 
 </div>
+
 
 </div>
 
@@ -163,8 +165,8 @@ Segments ({{ rec.segments.count }})
 </div>
 
 
-<audio controls preload="metadata"
-       src="{{ rec.file.url }}"
+<audio controls preload="none"
+       data-src="{{ rec.file.url }}"
        data-start="{{ seg.start_offset }}"
        data-end="{{ seg.end_offset }}"
        class="segment-player">
@@ -304,7 +306,7 @@ No recordings found for this time range.
 
 document.addEventListener("DOMContentLoaded", function () {
 
-  const players = document.querySelectorAll(".segment-player");
+  const players = document.querySelectorAll("audio");
 
   players.forEach(player => {
 
@@ -314,6 +316,18 @@ document.addEventListener("DOMContentLoaded", function () {
     let stopping = false;
 
     player.addEventListener("play", () => {
+      // Stop other players
+      players.forEach(p => {
+        if (p !== player) {
+          p.pause();
+        }
+      });
+
+      // Lazy load audio source
+      if (!player.src) {
+        player.src = player.dataset.src;
+      }
+
       if (player.currentTime < start || player.currentTime > end) {
         player.currentTime = start;
       }

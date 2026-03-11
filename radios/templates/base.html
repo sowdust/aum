@@ -13,7 +13,6 @@
 </head>
 
 <body>
-
 <header class="topbar">
   <div class="container topbar-inner">
 
@@ -23,30 +22,29 @@
 
     <nav class="nav">
 
-      <a href="/radios/">Radios</a>
-
-{% if user.is_authenticated %}
-      <a href="/admin/dashboard/">Dashboard</a>
-{% endif %}
+      <a href="/radios/">radios</a>
 
 {% if user.is_authenticated %}
 
-      <span class="nav-user">Hi {{ user.username }}</span>
+      <span class="nav-user">
+        user: {{ user.username }}
+      </span>
 
-      <a href="/radios/create/">Add Radio</a>
+      <a href="/radios/create/">add_radio</a>
 
       {% if user.is_staff %}
-      <a href="{% url 'admin_dashboard' %}" class="nav-admin">Admin</a>
-      <a href="{% url 'global_pipeline_settings' %}" class="nav-pipeline">Pipeline</a>
+        <a href="/radios/" class="{% if request.path == '/radios/' %}active{% endif %}">
+      <a href="{% url 'admin_dashboard' %}" class="nav-admin">admin</a>
+      <a href="{% url 'global_pipeline_settings' %}" class="nav-pipeline">pipeline</a>
       {% endif %}
 
-      <a href="/logout/">Logout</a>
+      <a href="/logout/">logout</a>
 
 {% else %}
 
-      <a href="/register/">Register</a>
-      <a href="/login/">Login</a>
-      <a href="/password-reset/">Reset PW</a>
+      <a href="/register/">register</a>
+      <a href="/login/">login</a>
+      <a href="/password-reset/">reset_pw</a>
 
 {% endif %}
 
