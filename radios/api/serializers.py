@@ -2,7 +2,8 @@ from rest_framework import serializers
 
 from radios.models import (
     Radio, Recording, Stream, TranscriptionSegment,
-    Tag, ChunkSummary, DailySummary, Song,
+    Tag, ChunkSummary, DailySummary, Song, SongOccurrence,
+    Artist, Genre,
 )
 
 
@@ -74,30 +75,57 @@ class TranscriptSearchResultSerializer(serializers.ModelSerializer):
         return snippet
 
 
-class SongSearchResultSerializer(serializers.ModelSerializer):
-    song_title  = serializers.CharField(source="song.title",  read_only=True, default="")
-    song_artist = serializers.CharField(source="song.artist", read_only=True, default="")
-    song_mbid   = serializers.CharField(source="song.mbid",   read_only=True, default=None, allow_null=True)
-    recording_id    = serializers.UUIDField(source="recording.id", read_only=True)
-    recording_start = serializers.DateTimeField(source="recording.start_time", read_only=True)
-    radio_slug  = serializers.CharField(source="recording.stream.radio.slug", read_only=True, default=None)
-    radio_name  = serializers.CharField(source="recording.stream.radio.name", read_only=True, default=None)
+class ArtistSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Artist
+        fields = ["id", "name", "shazam_id", "musicbrainz_id"]
+
+
+class GenreSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Genre
+        fields = ["id", "name", "slug"]
+
+
+class SongSerializer(serializers.ModelSerializer):
+    artist_ref = ArtistSerializer(read_only=True)
+    genres = GenreSerializer(many=True, read_only=True)
 
     class Meta:
-        model = TranscriptionSegment
+        model = Song
         fields = [
-            "id", "song_title", "song_artist", "song_mbid",
-            "start_offset", "end_offset",
+            "id", "title", "artist", "artist_ref", "shazam_key",
+            "musicbrainz_id", "genres", "album_name", "album_cover_url",
+            "release_year", "isrc", "duration_seconds",
+        ]
+
+
+class SongOccurrenceSearchResultSerializer(serializers.ModelSerializer):
+    """Serializer for song search results based on SongOccurrence."""
+    song = SongSerializer(read_only=True)
+    recording_id = serializers.UUIDField(source="segment.recording.id", read_only=True)
+    recording_start = serializers.DateTimeField(source="segment.recording.start_time", read_only=True)
+    radio_slug = serializers.CharField(
+        source="segment.recording.stream.radio.slug", read_only=True, default=None,
+    )
+    radio_name = serializers.CharField(
+        source="segment.recording.stream.radio.name", read_only=True, default=None,
+    )
+
+    class Meta:
+        model = SongOccurrence
+        fields = [
+            "id", "song", "start_offset", "end_offset", "confidence",
             "recording_id", "recording_start",
             "radio_slug", "radio_name",
         ]
 
 
 class SongAggregateSerializer(serializers.Serializer):
-    song_title  = serializers.CharField()
+    song_title = serializers.CharField()
     song_artist = serializers.CharField()
-    song_mbid   = serializers.CharField(allow_null=True)
-    play_count  = serializers.IntegerField()
+    shazam_key = serializers.CharField(allow_null=True)
+    play_count = serializers.IntegerField()
 
 
 class TagSerializer(serializers.ModelSerializer):

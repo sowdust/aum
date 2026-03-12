@@ -219,26 +219,37 @@ Language: {{ seg.language }}
 
 <div class="segment-music">
 
-{% if seg.song %}
+{% for occ in seg.song_occurrences.all %}
+
+<div class="song-entry">
 
 <div class="song-title">
-{{ seg.song.title }}
-{% if seg.song.artist %}
-— {{ seg.song.artist }}
+{{ occ.song.title }}
+{% if occ.song.artist %}
+— {{ occ.song.artist }}
 {% endif %}
 </div>
 
-{% if seg.song.mbid %}
-<a href="https://musicbrainz.org/recording/{{ seg.song.mbid }}" target="_blank">
+{% if occ.song.album_name %}
+<div class="song-album">
+{{ occ.song.album_name }}
+{% if occ.song.release_year %}({{ occ.song.release_year }}){% endif %}
+</div>
+{% endif %}
+
+{% if occ.song.musicbrainz_id %}
+<a href="https://musicbrainz.org/recording/{{ occ.song.musicbrainz_id }}" target="_blank">
 MusicBrainz
 </a>
 {% endif %}
 
-{% else %}
+</div>
+
+{% empty %}
 
 <div class="song-unknown">Not identified</div>
 
-{% endif %}
+{% endfor %}
 
 </div>
 

@@ -381,6 +381,28 @@ Edit it to narrow or widen the search ranges before running.  Default
 grid has ~243 combinations; with 2 files it takes roughly 30-60 minutes
 (the CNN is the bottleneck — it reruns per combination).
 
+After each combination the script prints the **best set found so far**,
+so you can stop early if the results look good enough.
+
+**Resuming after interruption:**
+
+The search saves its progress to `tune_checkpoint.json` after every
+combination.  If you press **Ctrl+C** or the process is killed, resume
+exactly where it left off:
+
+```bash
+# Interrupt at any time with Ctrl+C — progress is saved automatically.
+
+# Resume from the default checkpoint:
+python radios/analysis/tune.py labels.json --grid --resume
+
+# Use a custom checkpoint file (useful for running multiple searches):
+python radios/analysis/tune.py labels.json --grid --checkpoint run2.json
+python radios/analysis/tune.py labels.json --grid --resume --checkpoint run2.json
+```
+
+When the full run finishes the checkpoint file is deleted automatically.
+
 **Speeding up the grid search:**
 - Label shorter test clips (a few minutes each with 2-3 transitions).
 - Reduce the number of values per parameter before running.

@@ -1,15 +1,17 @@
 # AUM — Project TODO
 
-- [ ] extract show name and songs from transcript
-- [ ] understand why fingerprinting songs doesnt fucking work
+- [x] extract show name and songs from transcript (via BroadcastDaySummary / ShowBlock)
+
+## Segmentation / Fingerprinting Quality
+- [ ] **Segment boundary accuracy**: identified songs often include adjacent speech/noise — the player exposes this clearly. Need to investigate whether the issue is in inaSpeechSegmenter's output boundaries (possibly off by a few seconds) or in how fingerprinting maps back to those boundaries. Goal: when a song is played via the Songs Played player, only music should be heard — no presenter talk bleeding in.
 
 ## Pipeline Stages
-- [x] if key is not set or anything else, do not mark the process as completed.
+- [ ] if key is not set or anything else, do not mark the process as completed.
 - 
 - [x] record — `record_streams.py` (ffmpeg MP3 chunks)
 - [x] segment — `analysis/segmenter.py` (inaSpeechSegmenter CNN)
 - [x] fingerprint — `analysis/fingerprinter.py` (pyacoustid + fpcalc)
-  - [ ] fingerprint more than one song if longer than 6 minutes
+  - [x] fingerprint more than one song if longer than 6 minutes
 - [x] transcribe — `analysis/transcriber.py` (3 backends: local/openai/anthropic)
 - [x] **correct** — `analysis/corrector.py` (LLM post-processing: fix transcription errors + re-translate)
   - [x] 4 backends: local_ollama/cloud_ollama/openai/anthropic
@@ -27,6 +29,11 @@
 - [ ] Auth: token or JWT-based
 - [ ] Permissions: respect owner/public visibility flags
 - [ ] Rate limiting
+
+## Broadcast Day Summarization (future)
+- [ ] REST API: `BroadcastDaySummarySerializer`, `ShowBlockSerializer`, ViewSet at `/api/v1/radios/<slug>/broadcast-days/`
+- [ ] Web scraping: fetch radio website schedule to cross-reference show names (controlled by `DailySummarizationSettings.enable_web_scraping`)
+- [ ] FTS integration: add broadcast day summaries to full-text search index
 
 ## Search
 - [ ] Full-text search on TranscriptionSegment.text / text_english

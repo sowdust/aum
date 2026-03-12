@@ -4,6 +4,9 @@ Daemon that identifies songs in music segments via Shazam fingerprinting.
 Upstream: segmentation must be done/skipped.
 Independent of transcription — can run in parallel.
 
+Uses sliding window to detect multiple songs per segment, storing results
+as SongOccurrence rows.
+
 Usage:
     python manage.py fingerprint_recordings            # run as daemon
     python manage.py fingerprint_recordings --once     # process pending, then exit
@@ -12,8 +15,8 @@ Usage:
 
 import logging
 
-from radios.models import Song
-from radios.analysis.fingerprinter import fingerprint_segment
+from radios.models import Song, SongOccurrence
+from radios.analysis.fingerprinter import fingerprint_segment_sliding
 from radios.management.commands._analysis_base import AnalysisStageCommand
 
 logger = logging.getLogger("broadcast_analysis")
@@ -34,20 +37,29 @@ class Command(AnalysisStageCommand):
 
         for seg in music_segments:
             check_fn()
-            result = fingerprint_segment(
+            results = fingerprint_segment_sliding(
                 file_path, seg.start_offset, seg.end_offset,
             )
-            if result:
+
+            # Clear previous occurrences (idempotent re-processing)
+            seg.song_occurrences.all().delete()
+
+            for result in results:
                 song = Song.get_or_create_from_fingerprint(result)
-                seg.song = song
-                seg.confidence = result.score
-                seg.save(update_fields=["song", "confidence"])
+                SongOccurrence.objects.create(
+                    segment=seg,
+                    song=song,
+                    start_offset=result.estimated_start,
+                    end_offset=result.estimated_end,
+                    confidence=result.score,
+                )
                 logger.info(
                     "[%s] Fingerprinted [%.1f-%.1fs]: %s — %s (%.2f)",
-                    recording.id, seg.start_offset, seg.end_offset,
+                    recording.id, result.estimated_start, result.estimated_end,
                     result.artist, result.title, result.score,
                 )
-            else:
+
+            if not results:
                 logger.info(
                     "[%s] Fingerprinted [%.1f-%.1fs]: no match found.",
                     recording.id, seg.start_offset, seg.end_offset,

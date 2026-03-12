@@ -2,7 +2,7 @@
 Segmenter tuning script.
 
 Evaluates boundary accuracy against hand-labeled ground truth and
-optionally runs a grid search over the tuning parameters.
+optionally runs a resumable grid search over the tuning parameters.
 
 Usage
 -----
@@ -11,6 +11,12 @@ Usage
 
 # Grid search (slow -- reruns segmentation per parameter combination):
     python radios/analysis/tune.py labels.json --grid
+
+# Resume a previously interrupted grid search:
+    python radios/analysis/tune.py labels.json --grid --resume
+
+# Use a custom checkpoint file (default: tune_checkpoint.json):
+    python radios/analysis/tune.py labels.json --grid --checkpoint my_run.json
 
 Label file format (JSON)
 ------------------------
@@ -45,6 +51,7 @@ reports mean, median, and max error across all boundaries in all files.
 import argparse
 import json
 import os
+import signal
 import sys
 
 # Bootstrap Django so we can import segmenter (needs settings).
@@ -60,7 +67,7 @@ import numpy as np
 
 import radios.analysis.segmenter as seg_mod
 from radios.analysis.segmenter import segment_audio, AudioSegment
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 
 # -----------------------------------------------------------------------
@@ -152,6 +159,8 @@ PARAM_GRID = {
     "REFINE_SEARCH_RADIUS":[5.0, 10.0, 15.0],
 }
 
+_DEFAULT_CHECKPOINT = "tune_checkpoint.json"
+
 
 def _set_params(params: Dict[str, float]) -> None:
     """Patch segmenter module-level constants in place."""
@@ -164,28 +173,123 @@ def _set_params(params: Dict[str, float]) -> None:
     seg_mod._segmenter_instance = seg_mod._segmenter_instance  # no-op intentional
 
 
-def grid_search(labeled: List[Dict[str, Any]]) -> None:
-    """Try all combinations in PARAM_GRID and report results sorted by mean error."""
+def _save_checkpoint(path: str, results: list, completed: int) -> None:
+    """Persist completed results and how many combinations were finished."""
+    data = {
+        "completed": completed,
+        "results": [
+            {"mean": mean, "params": params, "metrics": metrics}
+            for mean, params, metrics in results
+        ],
+    }
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(data, f, indent=2)
+    os.replace(tmp, path)  # atomic replace to avoid corrupt checkpoint on crash
+
+
+def _load_checkpoint(path: str) -> tuple[int, list]:
+    """
+    Load a checkpoint file.
+    Returns (completed_count, results) where results is a list of
+    (mean, params, metrics) tuples.
+    """
+    with open(path) as f:
+        data = json.load(f)
+    completed = data.get("completed", 0)
+    results = [
+        (r["mean"], r["params"], r["metrics"])
+        for r in data.get("results", [])
+    ]
+    return completed, results
+
+
+def _print_best(results: list) -> None:
+    """Print the current best parameter set."""
+    if not results:
+        return
+    best_mean, best_params, best_metrics = min(results, key=lambda r: r[0])
+    param_str = "  ".join(f"{k}={v}" for k, v in best_params.items())
+    print(
+        f"  *** Best so far: mean={best_mean:.2f}s  "
+        f"median={best_metrics['median']:.2f}s  "
+        f"max={best_metrics['max']:.2f}s ***\n"
+        f"      {param_str}"
+    )
+
+
+def grid_search(
+    labeled: List[Dict[str, Any]],
+    checkpoint_path: str = _DEFAULT_CHECKPOINT,
+    resume: bool = False,
+) -> None:
+    """
+    Try all combinations in PARAM_GRID and report results sorted by mean error.
+
+    Progress is saved to *checkpoint_path* after each combination so the run
+    can be interrupted with Ctrl+C and resumed later with --resume.
+    """
     keys = list(PARAM_GRID.keys())
     values = list(PARAM_GRID.values())
     combinations = list(itertools.product(*values))
+    total = len(combinations)
 
-    print(f"Grid search: {len(combinations)} combinations × {len(labeled)} file(s)\n")
+    results: list = []
+    start_idx = 0
 
-    results = []
-    for combo in combinations:
+    if resume and os.path.exists(checkpoint_path):
+        start_idx, results = _load_checkpoint(checkpoint_path)
+        print(f"Resuming from checkpoint '{checkpoint_path}': {start_idx}/{total} already done.\n")
+        if results:
+            _print_best(results)
+            print()
+    elif resume:
+        print(f"No checkpoint found at '{checkpoint_path}', starting fresh.\n")
+
+    print(f"Grid search: {total} combinations × {len(labeled)} file(s)  "
+          f"(starting at #{start_idx + 1})\n")
+
+    # Track the combination index even if the loop body is never entered
+    # (so the KeyboardInterrupt handler can reference it safely).
+    combo_idx = start_idx - 1
+
+    def _handle_interrupt(signum, frame):
+        # Called when Ctrl+C is pressed mid-evaluation.  Save what we have.
+        print("\n\nInterrupted by user.  Saving progress...")
+        _save_checkpoint(checkpoint_path, results, combo_idx + 1)
+        print(f"Checkpoint saved to '{checkpoint_path}'.")
+        print(f"Resume with:  python radios/analysis/tune.py <labels> --grid --resume\n")
+        if results:
+            print("Best combination found so far:")
+            _print_best(results)
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, _handle_interrupt)
+
+    for combo_idx, combo in enumerate(combinations[start_idx:], start=start_idx):
         params = dict(zip(keys, combo))
         _set_params(params)
 
         param_str = ", ".join(f"{k}={v}" for k, v in params.items())
-        print(f"[{len(results)+1}/{len(combinations)}] {param_str}")
+        print(f"[{combo_idx + 1}/{total}] {param_str}")
 
         metrics = evaluate(labeled)
         if metrics:
             results.append((metrics["mean"], params, metrics))
-            print(f"  → mean={metrics['mean']:.2f}s  median={metrics['median']:.2f}s  max={metrics['max']:.2f}s\n")
+            print(
+                f"  → mean={metrics['mean']:.2f}s  "
+                f"median={metrics['median']:.2f}s  "
+                f"max={metrics['max']:.2f}s"
+            )
+            _print_best(results)
         else:
-            print("  → no boundaries evaluated\n")
+            print("  → no boundaries evaluated")
+
+        _save_checkpoint(checkpoint_path, results, combo_idx + 1)
+        print()
+
+    # Restore default SIGINT so the summary can be interrupted normally.
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
 
     if not results:
         print("No results.")
@@ -200,6 +304,11 @@ def grid_search(labeled: List[Dict[str, Any]]) -> None:
             print(f"    {k} = {v}")
         print()
 
+    # Remove checkpoint once the full run completes successfully.
+    if os.path.exists(checkpoint_path):
+        os.remove(checkpoint_path)
+        print(f"(Checkpoint '{checkpoint_path}' removed — run complete.)")
+
 
 # -----------------------------------------------------------------------
 # Entry point
@@ -212,6 +321,16 @@ def main():
         "--grid", action="store_true",
         help="Run grid search over PARAM_GRID instead of a single evaluation.",
     )
+    parser.add_argument(
+        "--resume", action="store_true",
+        help="Resume a previously interrupted grid search from the checkpoint file.",
+    )
+    parser.add_argument(
+        "--checkpoint",
+        default=_DEFAULT_CHECKPOINT,
+        metavar="FILE",
+        help=f"Checkpoint file for grid search progress (default: {_DEFAULT_CHECKPOINT}).",
+    )
     args = parser.parse_args()
 
     with open(args.labels) as f:
@@ -220,8 +339,10 @@ def main():
     print(f"Loaded {len(labeled)} labeled file(s).\n")
 
     if args.grid:
-        grid_search(labeled)
+        grid_search(labeled, checkpoint_path=args.checkpoint, resume=args.resume)
     else:
+        if args.resume:
+            print("Note: --resume is only used with --grid and has no effect here.\n")
         print("Evaluating current parameters...\n")
         metrics = evaluate(labeled)
         if metrics:

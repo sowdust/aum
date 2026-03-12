@@ -899,3 +899,115 @@ GLOBAL PIPELINE SETTINGS
 .form-actions{
   margin-top:14px;
 }
+
+.recording-info{
+  margin-top:10px;
+  font-size:0.85rem;
+}
+
+.recording-info div{
+  margin-bottom:4px;
+}
+
+.label{
+  display:inline-block;
+  width:80px;
+  color:#8b949e;
+}
+
+.panel-warning{
+  border:1px solid #f85149;
+}
+
+.warning-text{
+  color:#f85149;
+  margin-bottom:8px;
+}
+
+.warning-list{
+  margin-left:16px;
+  margin-bottom:10px;
+  color:#c9d1d9;
+}
+
+.button-danger{
+  border-color:#f85149;
+  color:#f85149;
+}
+
+.button-danger:hover{
+  background:#f85149;
+  color:#0d1117;
+}
+
+.button-row{
+  display:flex;
+  gap:12px;
+  margin-top:16px;
+}
+
+/***** STAGE BADGE *****/
+
+
+
+
+/* Stage badges */
+
+.stage-badge{
+  font-size:0.7rem;
+  font-weight:600;
+  padding:2px 6px;
+  border-radius:4px;
+  border:1px solid #30363d;
+  margin-left:4px;
+}
+
+
+/* DONE */
+
+.stage-done {
+    background: green;
+}
+
+/* RUNNING */
+
+.stage-running{
+  background:#3b2f0b;
+  color:#d29922;
+  border-color:#d29922;
+}
+.stage-running{
+  color:#d29922;
+  border-color:#d29922;
+  animation: pulse 1.2s infinite;
+}
+
+@keyframes pulse{
+  0%{opacity:1;}
+  50%{opacity:0.5;}
+  100%{opacity:1;}
+}
+
+/* FAILED */
+
+.stage-failed{
+  background:#3b0d0d;
+  color:#f85149;
+  border-color:#f85149;
+}
+
+
+/* PENDING */
+
+.stage-pending{
+  background:#161b22;
+  color:#8b949e;
+}
+
+
+/* SKIPPED */
+
+.stage-skipped{
+  background:#161b22;
+  color:#6e7681;
+}

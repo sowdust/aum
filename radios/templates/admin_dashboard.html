@@ -46,7 +46,81 @@
         <div class="stat-label">Summarization Backend</div>
         <div class="stat-value" style="font-size:1rem;">{{ summarization_backend }}</div>
       </div>
+      <div class="stat-box">
+        <div class="stat-label">Daily Summ. Backend</div>
+        <div class="stat-value" style="font-size:1rem;">{{ daily_summarization_backend }}</div>
+      </div>
     </div>
+  </div>
+
+  <!-- Recording Status -->
+  <div class="panel">
+    <div class="panel-title">Recording Status</div>
+    <div style="display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:0.75rem;">
+      <div class="stat-box">
+        <div class="stat-label">Recording</div>
+        <div class="stat-value">{{ recording_streams|length }}</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Errors</div>
+        <div class="stat-value">
+          {% if recording_error_streams %}<span class="num-fail">{{ recording_error_streams|length }}</span>{% else %}0{% endif %}
+        </div>
+      </div>
+    </div>
+    {% if recording_streams %}
+      <div class="sub-title">ACTIVE RECORDINGS</div>
+      <table class="mono-table" style="margin-bottom:0.5rem;">
+        <thead>
+          <tr><th>Stream</th><th>Source</th><th>Started</th></tr>
+        </thead>
+        <tbody>
+          {% for s in recording_streams %}
+          <tr>
+            <td>{{ s.name }}</td>
+            <td>
+              {% if s.radio %}
+                <a href="{% url 'radio_detail' s.radio.slug %}" style="color:#58a6ff;">{{ s.radio.name }}</a>
+              {% elif s.audio_feed %}
+                {{ s.audio_feed.name }}
+              {% else %}
+                <span class="num-mute">—</span>
+              {% endif %}
+            </td>
+            <td>{{ s.recording_started_at|date:"Y-m-d H:i:s"|default:"—" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+    {% if recording_error_streams %}
+      <div class="sub-title">RECORDING ERRORS</div>
+      <table class="mono-table">
+        <thead>
+          <tr><th>Stream</th><th>Source</th><th>Error</th></tr>
+        </thead>
+        <tbody>
+          {% for s in recording_error_streams %}
+          <tr>
+            <td>{{ s.name }}</td>
+            <td>
+              {% if s.radio %}
+                <a href="{% url 'radio_detail' s.radio.slug %}" style="color:#58a6ff;">{{ s.radio.name }}</a>
+              {% elif s.audio_feed %}
+                {{ s.audio_feed.name }}
+              {% else %}
+                <span class="num-mute">—</span>
+              {% endif %}
+            </td>
+            <td><div class="error-excerpt" title="{{ s.recording_error }}">{{ s.recording_error|truncatechars:300|default:"(no details)" }}</div></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+    {% if not recording_streams and not recording_error_streams %}
+      <span class="led-green">●</span> <span style="color:#8b949e;">No streams recording</span>
+    {% endif %}
   </div>
 
   <!-- Stage Counts -->
@@ -80,6 +154,74 @@
         {% endfor %}
       </tbody>
     </table>
+  </div>
+
+  <!-- Daily Summarization -->
+  <div class="panel">
+    <div class="panel-title">Daily Broadcast Summarization</div>
+    <div style="display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:0.75rem;">
+      <div class="stat-box">
+        <div class="stat-label">Pending</div>
+        <div class="stat-value"><span class="num-mute">{{ daily_summ_counts.pending|default:"0" }}</span></div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Running</div>
+        <div class="stat-value"><span class="num-run">{{ daily_summ_counts.running|default:"0" }}</span></div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Done</div>
+        <div class="stat-value"><span class="num-done">{{ daily_summ_counts.done|default:"0" }}</span></div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Failed</div>
+        <div class="stat-value">
+          {% with fail=daily_summ_counts.failed|default:0 %}
+            {% if fail %}<span class="num-fail">{{ fail }}</span>{% else %}<span class="num-mute">0</span>{% endif %}
+          {% endwith %}
+        </div>
+      </div>
+    </div>
+    {% if daily_summ_running %}
+      <div class="sub-title">RUNNING</div>
+      <table class="mono-table" style="margin-bottom:0.5rem;">
+        <thead>
+          <tr><th>Radio</th><th>Date</th><th>Updated</th></tr>
+        </thead>
+        <tbody>
+          {% for ds in daily_summ_running %}
+          <tr>
+            <td>
+              <a href="{% url 'radio_detail' ds.radio.slug %}" style="color:#58a6ff;">{{ ds.radio.name }}</a>
+            </td>
+            <td>{{ ds.date|date:"Y-m-d" }}</td>
+            <td>{{ ds.updated_at|date:"Y-m-d H:i:s"|default:"—" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+    {% if daily_summ_failed %}
+      <div class="sub-title">RECENT FAILURES</div>
+      <table class="mono-table">
+        <thead>
+          <tr><th>Radio</th><th>Date</th><th>Error</th></tr>
+        </thead>
+        <tbody>
+          {% for ds in daily_summ_failed %}
+          <tr>
+            <td>
+              <a href="{% url 'radio_detail' ds.radio.slug %}" style="color:#58a6ff;">{{ ds.radio.name }}</a>
+            </td>
+            <td>{{ ds.date|date:"Y-m-d" }}</td>
+            <td><div class="error-excerpt" title="{{ ds.error }}">{{ ds.error|truncatechars:300|default:"(no details)" }}</div></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+    {% if not daily_summ_running and not daily_summ_failed and not daily_summ_counts.pending %}
+      <span class="led-green">●</span> <span style="color:#8b949e;">No broadcast day summaries in queue</span>
+    {% endif %}
   </div>
 
   <!-- Currently Running -->

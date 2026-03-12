@@ -1,43 +1,69 @@
 {% extends "base.html" %}
 
-{% block title %}Delete Recording — {{ radio.name }}{% endblock %}
+{% block title %}delete_recording — {{ radio.name }}{% endblock %}
 
 {% block content %}
-<div class="max-w-lg mx-auto mt-10 bg-white dark:bg-gray-800 rounded-xl shadow p-8 space-y-6">
 
-  <h1 class="text-2xl font-bold text-red-700 dark:text-red-400">Delete Recording</h1>
+<h1>Delete Recording</h1>
 
-  <p class="text-gray-800 dark:text-gray-200">
-    Are you sure you want to permanently delete this recording?
-  </p>
+<div class="panel">
 
-  <div class="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 text-sm text-gray-700 dark:text-gray-300 space-y-1">
-    <p><span class="font-semibold">Stream:</span> {{ recording.stream.name }}</p>
-    <p><span class="font-semibold">Start:</span> {{ recording.start_time|date:"Y-m-d H:i:s" }}</p>
-    <p><span class="font-semibold">End:</span> {{ recording.end_time|date:"Y-m-d H:i:s" }}</p>
-    {% if recording.duration %}
-    <p><span class="font-semibold">Duration:</span> {{ recording.duration }}</p>
-    {% endif %}
-    <p><span class="font-semibold">File:</span> {{ recording.file.name }}</p>
-  </div>
+<p>
+You are about to permanently delete a recording.
+</p>
 
-  <p class="text-sm text-red-600 dark:text-red-400">
-    This will permanently remove the recording, all its segments, transcripts, fingerprints, and summaries from the database, and delete the MP3 file from disk. This action cannot be undone.
-  </p>
+<div class="recording-info">
 
-  <form method="post">
-    {% csrf_token %}
-    <div class="flex gap-4">
-      <button type="submit"
-              class="px-5 py-2 rounded-lg bg-red-600 text-white font-semibold hover:bg-red-700 transition">
-        Yes, delete permanently
-      </button>
-      <a href="{% url 'radio_recordings' slug=radio.slug %}"
-         class="px-5 py-2 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-600 transition">
-        Cancel
-      </a>
-    </div>
-  </form>
+<div><span class="label">stream</span> {{ recording.stream.name }}</div>
+<div><span class="label">start</span> {{ recording.start_time|date:"Y-m-d H:i:s" }}</div>
+<div><span class="label">end</span> {{ recording.end_time|date:"Y-m-d H:i:s" }}</div>
+
+{% if recording.duration %}
+<div><span class="label">duration</span> {{ recording.duration }}</div>
+{% endif %}
+
+<div><span class="label">file</span> {{ recording.file.name }}</div>
 
 </div>
-{% endblock content %}
+
+</div>
+
+<div class="panel panel-warning">
+
+<p class="warning-text">
+WARNING: this will permanently delete:
+</p>
+
+<ul class="warning-list">
+<li>recording database entry</li>
+<li>all segments</li>
+<li>transcripts</li>
+<li>audio fingerprints</li>
+<li>summaries</li>
+<li>MP3 file on disk</li>
+</ul>
+
+<p class="warning-text">
+This action cannot be undone.
+</p>
+
+</div>
+
+<form method="post">
+{% csrf_token %}
+
+<div class="button-row">
+
+<button type="submit" class="button button-danger">
+delete_recording
+</button>
+
+<a href="{% url 'radio_recordings' slug=radio.slug %}" class="button">
+cancel
+</a>
+
+</div>
+
+</form>
+
+{% endblock %}

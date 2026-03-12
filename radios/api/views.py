@@ -5,11 +5,12 @@ from rest_framework.response import Response
 
 from radios.models import (
     Radio, TranscriptionSegment, Tag, ChunkSummary, DailySummary,
+    SongOccurrence,
 )
 from radios.api.serializers import (
     RadioSerializer,
     TranscriptSearchResultSerializer,
-    SongSearchResultSerializer,
+    SongOccurrenceSearchResultSerializer,
     SongAggregateSerializer,
     TagSerializer,
     ChunkSummarySerializer,
@@ -93,13 +94,13 @@ class TranscriptSearchView(generics.ListAPIView):
 
 
 class SongSearchView(generics.ListAPIView):
-    """Search for songs identified via fingerprinting."""
+    """Search for songs identified via fingerprinting (uses SongOccurrence)."""
     permission_classes = [AllowAny]
 
     def get_serializer_class(self):
         if self.request.query_params.get("group") == "true":
             return SongAggregateSerializer
-        return SongSearchResultSerializer
+        return SongOccurrenceSearchResultSerializer
 
     def get_queryset(self):
         visible_stream_ids = get_visible_stream_ids(
@@ -107,13 +108,17 @@ class SongSearchView(generics.ListAPIView):
         )
 
         qs = (
-            TranscriptionSegment.objects
+            SongOccurrence.objects
             .filter(
-                segment_type="music",
-                recording__stream_id__in=visible_stream_ids,
-                song__isnull=False,
+                segment__recording__stream_id__in=visible_stream_ids,
             )
-            .select_related("song", "recording", "recording__stream", "recording__stream__radio")
+            .select_related(
+                "song", "song__artist_ref",
+                "segment", "segment__recording",
+                "segment__recording__stream",
+                "segment__recording__stream__radio",
+            )
+            .prefetch_related("song__genres")
         )
 
         query = self.request.query_params.get("q", "").strip()
@@ -132,15 +137,15 @@ class SongSearchView(generics.ListAPIView):
 
         radio = self.request.query_params.get("radio")
         if radio:
-            qs = qs.filter(recording__stream__radio__slug=radio)
+            qs = qs.filter(segment__recording__stream__radio__slug=radio)
 
         date_from = self.request.query_params.get("date_from")
         if date_from:
-            qs = qs.filter(recording__start_time__date__gte=date_from)
+            qs = qs.filter(segment__recording__start_time__date__gte=date_from)
 
         date_to = self.request.query_params.get("date_to")
         if date_to:
-            qs = qs.filter(recording__start_time__date__lte=date_to)
+            qs = qs.filter(segment__recording__start_time__date__lte=date_to)
 
         return qs
 
@@ -148,7 +153,7 @@ class SongSearchView(generics.ListAPIView):
         if request.query_params.get("group") == "true":
             qs = self.get_queryset()
             aggregated = (
-                qs.values("song__title", "song__artist", "song__mbid")
+                qs.values("song__title", "song__artist", "song__shazam_key")
                 .annotate(play_count=Count("id"))
                 .order_by("-play_count")
             )
@@ -156,7 +161,7 @@ class SongSearchView(generics.ListAPIView):
                 {
                     "song_title": r["song__title"],
                     "song_artist": r["song__artist"],
-                    "song_mbid": r["song__mbid"],
+                    "shazam_key": r["song__shazam_key"],
                     "play_count": r["play_count"],
                 }
                 for r in aggregated

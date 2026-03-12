@@ -22,7 +22,7 @@ BROADCAST_TYPE_CHOICES = [
 ]
 
 
-PIPELINE_STAGES = ["recording", "segmentation", "fingerprinting", "transcription", "summarization"]
+PIPELINE_STAGES = ["recording", "segmentation", "fingerprinting", "transcription", "summarization", "daily_summarization"]
 
 
 class GlobalPipelineSettings(models.Model):
@@ -49,6 +49,10 @@ class GlobalPipelineSettings(models.Model):
     enable_summarization = models.BooleanField(
         default=True,
         help_text="Globally enable/disable LLM summarization.",
+    )
+    enable_daily_summarization = models.BooleanField(
+        default=False,
+        help_text="Globally enable/disable daily broadcast summarization.",
     )
     proxy_url = models.URLField(
         max_length=500,
@@ -127,6 +131,13 @@ class BaseAudioSource(models.Model):
         default="",
         help_text="Proxy URL for this source (only used when proxy_mode='custom'). "
                   "e.g. http://proxy:8080 or socks5://proxy:1080",
+    )
+    stream_codec = models.CharField(
+        max_length=20,
+        blank=True,
+        default="",
+        help_text="Audio codec of the stream (e.g. 'mp3', 'aac', 'ogg'). "
+                  "Auto-detected on first recording if left blank.",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -270,12 +281,25 @@ class Stream(models.Model):
     url = models.URLField()
     is_active = models.BooleanField(default=True)
 
+    # --- Recording status (managed by record_streams command) ---
+    RECORDING_STATUS_CHOICES = [
+        ("idle", "Idle"),
+        ("recording", "Recording"),
+        ("error", "Error"),
+    ]
+    recording_status = models.CharField(
+        max_length=10, choices=RECORDING_STATUS_CHOICES, default="idle", db_index=True,
+    )
+    recording_error = models.TextField(blank=True, default="")
+    recording_started_at = models.DateTimeField(null=True, blank=True)
+
     # --- Pipeline stage enables (admin-controlled) ---
     enable_recording = models.BooleanField(default=True)
     enable_segmentation = models.BooleanField(default=True)
     enable_fingerprinting = models.BooleanField(default=True)
     enable_transcription = models.BooleanField(default=True)
     enable_summarization = models.BooleanField(default=True)
+    enable_daily_summarization = models.BooleanField(default=False)
 
     # --- Stage result visibility (owner-controlled) ---
     recording_owner_visible = models.BooleanField(default=True)
@@ -288,6 +312,8 @@ class Stream(models.Model):
     transcription_public_visible = models.BooleanField(default=False)
     summarization_owner_visible = models.BooleanField(default=True)
     summarization_public_visible = models.BooleanField(default=False)
+    daily_summarization_owner_visible = models.BooleanField(default=True)
+    daily_summarization_public_visible = models.BooleanField(default=False)
 
     _STAGE_DEPENDENCIES = {
         "recording": None,
@@ -295,6 +321,7 @@ class Stream(models.Model):
         "fingerprinting": "segmentation",
         "transcription": "segmentation",
         "summarization": "transcription",
+        "daily_summarization": "transcription",
     }
 
     def is_stage_active(self, stage: str) -> bool:
@@ -422,17 +449,85 @@ class Recording(models.Model):
         return f"{self.stream.source} [{self.start_time} - {self.end_time}]"
 
 
+class Artist(models.Model):
+    """A music artist, deduplicated by Shazam ID or case-insensitive name."""
+    name = models.CharField(max_length=255, db_index=True)
+    shazam_id = models.CharField(max_length=50, unique=True, null=True, blank=True)
+    musicbrainz_id = models.CharField(max_length=36, unique=True, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+    @classmethod
+    def get_or_create_by_name(cls, name):
+        """Case-insensitive lookup, create if missing."""
+        try:
+            return cls.objects.get(name__iexact=name), False
+        except cls.DoesNotExist:
+            return cls.objects.create(name=name), True
+        except cls.MultipleObjectsReturned:
+            return cls.objects.filter(name__iexact=name).first(), False
+
+
+class Genre(models.Model):
+    """A music genre, normalized like Tag."""
+    name = models.CharField(max_length=100, unique=True, db_index=True)
+    slug = models.SlugField(max_length=100, unique=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def save(self, *args, **kwargs):
+        self.name = self.name.lower().strip()
+        if not self.slug:
+            self.slug = slugify(self.name)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.name
+
+    @classmethod
+    def get_or_create_normalized(cls, name: str):
+        """Return (genre, created) for a normalized genre name."""
+        normalized = name.lower().strip()
+        slug = slugify(normalized)
+        return cls.objects.get_or_create(slug=slug, defaults={"name": normalized})
+
+
 class Song(models.Model):
     """
-    A music track identified via AcoustID/MusicBrainz fingerprinting.
-    Shared across all TranscriptionSegment occurrences of the same track.
+    A music track identified via Shazam fingerprinting.
+    Shared across all SongOccurrence instances of the same track.
     """
-    title  = models.CharField(max_length=255, db_index=True)
-    artist = models.CharField(max_length=255, blank=True, db_index=True)
-    mbid   = models.CharField(
-        max_length=36, unique=True, null=True, blank=True,
-        help_text="MusicBrainz Recording ID from AcoustID. Null when unavailable.",
+    title = models.CharField(max_length=255, db_index=True)
+    artist = models.CharField(max_length=255, blank=True, db_index=True,
+        help_text="Denormalized artist display name from Shazam.")
+    artist_ref = models.ForeignKey(
+        Artist, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="songs",
+        help_text="Normalized artist reference.",
     )
+    shazam_key = models.CharField(
+        max_length=50, unique=True, null=True, blank=True,
+        help_text="Shazam track key — canonical dedup key.",
+    )
+    musicbrainz_id = models.CharField(
+        max_length=36, unique=True, null=True, blank=True,
+        help_text="MusicBrainz Recording ID (for future enrichment).",
+    )
+    genres = models.ManyToManyField(Genre, related_name="songs", blank=True)
+    album_name = models.CharField(max_length=255, blank=True)
+    album_cover_url = models.URLField(max_length=500, blank=True)
+    release_year = models.PositiveSmallIntegerField(null=True, blank=True)
+    isrc = models.CharField(max_length=15, blank=True,
+        help_text="International Standard Recording Code (future MusicBrainz).")
+    duration_seconds = models.PositiveIntegerField(null=True, blank=True,
+        help_text="Track duration in seconds (helps sliding window step).")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -445,20 +540,54 @@ class Song(models.Model):
     def get_or_create_from_fingerprint(cls, result):
         """
         Resolve a FingerprintResult to a Song row.
-        Prefers mbid as the canonical key; falls back to (title, artist)
-        for the rare case where AcoustID returns no mbid.
+        Prefers shazam_key as the canonical key; falls back to (title, artist).
+        Updates metadata on existing rows when Shazam provides new info.
         """
-        if result.mbid:
-            song, _ = cls.objects.get_or_create(
-                mbid=result.mbid,
+        if result.shazam_key:
+            song, created = cls.objects.get_or_create(
+                shazam_key=result.shazam_key,
                 defaults={"title": result.title, "artist": result.artist},
             )
         else:
-            song, _ = cls.objects.get_or_create(
+            song, created = cls.objects.get_or_create(
                 title=result.title,
                 artist=result.artist,
-                mbid=None,
+                shazam_key=None,
             )
+
+        # Update metadata if we have new info
+        updated_fields = []
+        if result.title and song.title != result.title:
+            song.title = result.title
+            updated_fields.append("title")
+        if result.artist and song.artist != result.artist:
+            song.artist = result.artist
+            updated_fields.append("artist")
+        if hasattr(result, "album_name") and result.album_name and not song.album_name:
+            song.album_name = result.album_name
+            updated_fields.append("album_name")
+        if hasattr(result, "album_cover_url") and result.album_cover_url and not song.album_cover_url:
+            song.album_cover_url = result.album_cover_url
+            updated_fields.append("album_cover_url")
+        if hasattr(result, "release_year") and result.release_year and not song.release_year:
+            song.release_year = result.release_year
+            updated_fields.append("release_year")
+        if updated_fields:
+            song.save(update_fields=updated_fields)
+
+        # Link artist
+        if result.artist and not song.artist_ref:
+            artist_obj, _ = Artist.get_or_create_by_name(result.artist)
+            song.artist_ref = artist_obj
+            song.save(update_fields=["artist_ref"])
+
+        # Link genres
+        if hasattr(result, "genres") and result.genres:
+            for genre_name in result.genres:
+                if genre_name:
+                    genre_obj, _ = Genre.get_or_create_normalized(genre_name)
+                    song.genres.add(genre_obj)
+
         return song
 
 
@@ -488,7 +617,8 @@ class TranscriptionSegment(models.Model):
     confidence = models.FloatField(default=0.0)
     language = models.CharField(max_length=10, blank=True, default="")
     song = models.ForeignKey(
-        Song, null=True, blank=True, on_delete=models.SET_NULL, related_name="occurrences"
+        Song, null=True, blank=True, on_delete=models.SET_NULL, related_name="occurrences",
+        help_text="Deprecated: use SongOccurrence instead. Kept for data migration.",
     )
 
     class Meta:
@@ -901,6 +1031,183 @@ class FeedAnomaly(models.Model):
 
     def __str__(self):
         return f"{self.anomaly_type} at {self.start_offset:.1f}s in {self.recording}"
+
+
+_DEFAULT_BROADCAST_DAY_PROMPT = """\
+You are analysing a full day of radio broadcasts. Below is a chronological timeline of everything that aired on {radio_name} ({radio_location}) on {date} ({timezone}).
+The radio's language is: {radio_language}.
+
+Your task is to reconstruct the broadcast day: identify individual shows/programmes, summarise each one, and provide an overview of the entire day.
+
+Return ONLY valid JSON with these fields:
+- "overview": 3-5 sentences summarising the day's broadcast
+- "tags": list of up to 15 lowercase keyword tags (main topics, people, events — no duplicates)
+- "shows": array of objects, each with:
+  - "name": show/programme name (infer from context if not stated explicitly)
+  - "type": one of: music, news, talk, sports, cultural, religious, spot, mixed, unknown
+  - "start_time": "HH:MM" (local time)
+  - "end_time": "HH:MM" (local time)
+  - "summary": 2-4 sentences describing what happened in this show
+  - "tags": list of up to 10 lowercase keyword tags for this show
+  - "songs": list of "Title - Artist" strings for songs played during this show
+
+Timeline:
+{timeline}
+
+Respond with ONLY the JSON object, no markdown fences or explanation."""
+
+
+class DailySummarizationSettings(models.Model):
+    """
+    Singleton (pk=1). Controls the daily broadcast summarization pipeline stage.
+    API keys are read from environment variables.
+    """
+    BACKEND_CHOICES = [
+        ("local_ollama", "Local Ollama"),
+        ("cloud_ollama", "Cloud Ollama"),
+        ("openai", "OpenAI"),
+        ("anthropic", "Anthropic (Claude)"),
+    ]
+
+    backend = models.CharField(
+        max_length=20, choices=BACKEND_CHOICES, default="local_ollama",
+        help_text="Which LLM backend to use for daily broadcast summarization.",
+    )
+
+    # --- Local Ollama ---
+    local_ollama_model = models.CharField(
+        max_length=100, default="llama3.2",
+        help_text="Ollama model name, e.g. 'llama3.2', 'mistral'.",
+    )
+    local_ollama_url = models.URLField(
+        max_length=500, default="http://localhost:11434",
+        help_text="Base URL of the local Ollama server.",
+    )
+
+    # --- Cloud Ollama ---
+    cloud_ollama_model = models.CharField(
+        max_length=100, default="llama3.2",
+        help_text="Ollama model name for cloud API. Set OLLAMA_API_KEY.",
+    )
+    cloud_ollama_url = models.URLField(
+        max_length=500, default="https://ollama.com",
+        help_text="Base URL of the Ollama cloud API.",
+    )
+
+    # --- OpenAI ---
+    openai_model = models.CharField(
+        max_length=100, default="gpt-4o-mini",
+        help_text="OpenAI model name. API key from OPENAI_API_KEY env var.",
+    )
+
+    # --- Anthropic ---
+    anthropic_model = models.CharField(
+        max_length=100, default="claude-haiku-4-5-20251001",
+        help_text="Claude model ID. API key from ANTHROPIC_API_KEY env var.",
+    )
+
+    # --- Prompt ---
+    prompt_broadcast_day = models.TextField(
+        default=_DEFAULT_BROADCAST_DAY_PROMPT,
+        help_text=(
+            "Prompt template for daily broadcast summarization. "
+            "Placeholders: {radio_name}, {radio_location}, {radio_language}, "
+            "{date}, {timezone}, {timeline}."
+        ),
+    )
+
+    enable_web_scraping = models.BooleanField(
+        default=False,
+        help_text="Placeholder for future web scraping of radio schedules.",
+    )
+
+    class Meta:
+        verbose_name = "Daily Summarization Settings"
+        verbose_name_plural = "Daily Summarization Settings"
+
+    def save(self, *args, **kwargs):
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        pass
+
+    @classmethod
+    def get_settings(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+    def __str__(self):
+        return "Daily Summarization Settings"
+
+
+class BroadcastDaySummary(models.Model):
+    """A reconstructed broadcast day for a radio station on a given date."""
+    STATUS_CHOICES = [
+        ("pending", "Pending"),
+        ("running", "Running"),
+        ("done", "Done"),
+        ("failed", "Failed"),
+    ]
+
+    radio = models.ForeignKey(
+        Radio, on_delete=models.CASCADE, related_name="broadcast_days",
+    )
+    date = models.DateField()
+    status = models.CharField(
+        max_length=10, choices=STATUS_CHOICES, default="pending", db_index=True,
+    )
+    error = models.TextField(blank=True, default="")
+    overview = models.TextField(blank=True, default="")
+    tags = models.ManyToManyField(Tag, related_name="broadcast_days", blank=True)
+    recording_count = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("radio", "date")
+        ordering = ["-date"]
+
+    def __str__(self):
+        return f"{self.radio.name} — {self.date}"
+
+
+class ShowBlock(models.Model):
+    """An individual show within a broadcast day."""
+    SHOW_TYPE_CHOICES = [
+        ("music", "Music"),
+        ("news", "News"),
+        ("talk", "Talk"),
+        ("sports", "Sports"),
+        ("cultural", "Cultural"),
+        ("religious", "Religious"),
+        ("spot", "Spot / Advertisement"),
+        ("mixed", "Mixed"),
+        ("unknown", "Unknown"),
+    ]
+
+    broadcast_day = models.ForeignKey(
+        BroadcastDaySummary, on_delete=models.CASCADE, related_name="shows",
+    )
+    name = models.CharField(max_length=255)
+    show_type = models.CharField(
+        max_length=10, choices=SHOW_TYPE_CHOICES, default="unknown",
+    )
+    start_time = models.DateTimeField(help_text="Absolute start time in radio's local timezone.")
+    end_time = models.DateTimeField(help_text="Absolute end time in radio's local timezone.")
+    summary = models.TextField(blank=True, default="")
+    show_url = models.URLField(blank=True, default="", help_text="For future web scraping.")
+    tags = models.ManyToManyField(Tag, related_name="show_blocks", blank=True)
+    songs = models.ManyToManyField(
+        SongOccurrence, related_name="show_blocks", blank=True,
+    )
+    order = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ["order", "start_time"]
+
+    def __str__(self):
+        return f"{self.name} ({self.start_time:%H:%M}–{self.end_time:%H:%M})"
 
 
 class RadioUser(AbstractUser):

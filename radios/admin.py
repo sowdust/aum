@@ -6,7 +6,9 @@ from django import forms
 from .models import (
     Radio, AudioFeed, Recording, Stream, RadioUser,
     TranscriptionSegment, ChunkSummary, DailySummary, FeedAnomaly,
-    GlobalPipelineSettings, TranscriptionSettings, SummarizationSettings, Song,
+    GlobalPipelineSettings, TranscriptionSettings, SummarizationSettings,
+    DailySummarizationSettings, BroadcastDaySummary, ShowBlock,
+    Song, SongOccurrence, Artist, Genre,
 )
 
 @admin.register(Recording)
@@ -68,25 +70,33 @@ class StreamInline(admin.TabularInline):
     fields = [
         "name", "url", "is_active",
         "enable_recording", "enable_segmentation", "enable_fingerprinting",
-        "enable_transcription", "enable_summarization",
+        "enable_transcription", "enable_summarization", "enable_daily_summarization",
         "recording_owner_visible", "segmentation_owner_visible",
         "fingerprinting_owner_visible", "transcription_owner_visible",
-        "summarization_owner_visible",
+        "summarization_owner_visible", "daily_summarization_owner_visible",
     ]
 
 
 @admin.register(Stream)
 class StreamAdmin(admin.ModelAdmin):
-    list_display = ("name", "radio", "audio_feed", "is_active", "enable_recording")
-    list_filter = ("is_active", "radio", "audio_feed")
+    list_display = (
+        "name", "radio", "audio_feed", "is_active",
+        "enable_recording", "recording_status",
+    )
+    list_filter = ("is_active", "recording_status", "radio", "audio_feed")
     search_fields = ("name", "url")
+    readonly_fields = ("recording_status", "recording_error", "recording_started_at")
     fieldsets = [
         (None, {"fields": ["radio", "audio_feed", "name", "url", "is_active"]}),
+        ("Recording Status", {
+            "fields": ["recording_status", "recording_error", "recording_started_at"],
+            "description": "Live recording state — managed by the record_streams service.",
+        }),
         ("Pipeline Controls", {
             "description": "Admin-controlled per-stream enables. Still obey global settings and upstream dependencies.",
             "fields": [
                 "enable_recording", "enable_segmentation", "enable_fingerprinting",
-                "enable_transcription", "enable_summarization",
+                "enable_transcription", "enable_summarization", "enable_daily_summarization",
             ],
         }),
         ("Visibility Settings", {
@@ -94,7 +104,7 @@ class StreamAdmin(admin.ModelAdmin):
             "fields": [
                 "recording_owner_visible", "segmentation_owner_visible",
                 "fingerprinting_owner_visible", "transcription_owner_visible",
-                "summarization_owner_visible",
+                "summarization_owner_visible", "daily_summarization_owner_visible",
             ],
         }),
         ("Advanced / Public Visibility", {
@@ -103,7 +113,7 @@ class StreamAdmin(admin.ModelAdmin):
             "fields": [
                 "recording_public_visible", "segmentation_public_visible",
                 "fingerprinting_public_visible", "transcription_public_visible",
-                "summarization_public_visible",
+                "summarization_public_visible", "daily_summarization_public_visible",
             ],
         }),
     ]
@@ -119,6 +129,7 @@ class GlobalPipelineSettingsAdmin(admin.ModelAdmin):
                 "enable_fingerprinting",
                 "enable_transcription",
                 "enable_summarization",
+                "enable_daily_summarization",
             ],
             "description": (
                 "Global kill switches. Disabling a stage here overrides all per-source "
@@ -281,37 +292,80 @@ class AudioFeedAdmin(admin.ModelAdmin):
                 "'Custom Proxy' = use the proxy URL specified below."
             ),
         }),
+        ("Stream Codec", {
+            "classes": ("collapse",),
+            "fields": ["stream_codec"],
+            "description": "Audio codec of the stream. Auto-detected on first recording if left blank.",
+        }),
     ]
+
+
+@admin.register(Artist)
+class ArtistAdmin(admin.ModelAdmin):
+    list_display = ("name", "shazam_id", "musicbrainz_id", "created_at")
+    search_fields = ("name", "shazam_id", "musicbrainz_id")
+    readonly_fields = ("created_at",)
+
+
+@admin.register(Genre)
+class GenreAdmin(admin.ModelAdmin):
+    list_display = ("name", "slug", "created_at")
+    search_fields = ("name",)
+    prepopulated_fields = {"slug": ("name",)}
+    readonly_fields = ("created_at",)
+
+
+class SongOccurrenceInline(admin.TabularInline):
+    model = SongOccurrence
+    extra = 0
+    readonly_fields = ("segment", "start_offset", "end_offset", "confidence")
 
 
 @admin.register(Song)
 class SongAdmin(admin.ModelAdmin):
-    list_display = ("title", "artist", "mbid", "created_at")
-    search_fields = ("title", "artist", "mbid")
+    list_display = ("title", "artist", "shazam_key", "album_name", "release_year", "created_at")
+    search_fields = ("title", "artist", "shazam_key", "album_name")
+    list_filter = ("genres",)
     readonly_fields = ("created_at",)
+    inlines = [SongOccurrenceInline]
+    filter_horizontal = ("genres",)
+
+
+@admin.register(SongOccurrence)
+class SongOccurrenceAdmin(admin.ModelAdmin):
+    list_display = ("song", "segment", "start_offset", "end_offset", "confidence")
+    search_fields = ("song__title", "song__artist")
+    list_filter = ("confidence",)
+    readonly_fields = ("segment", "song", "start_offset", "end_offset", "confidence")
+
+
+class SegmentSongOccurrenceInline(admin.TabularInline):
+    model = SongOccurrence
+    extra = 0
+    readonly_fields = ("song", "start_offset", "end_offset", "confidence")
 
 
 @admin.register(TranscriptionSegment)
 class TranscriptionSegmentAdmin(admin.ModelAdmin):
     list_display = (
         "recording", "segment_type", "start_offset", "end_offset",
-        "language", "has_transcription", "get_song_artist", "get_song_title",
+        "language", "has_transcription", "get_songs",
     )
     list_filter = ("segment_type", "language")
-    search_fields = ("text", "text_english", "song__title", "song__artist")
+    search_fields = ("text", "text_english")
     readonly_fields = ("recording", "segment_type", "start_offset", "end_offset")
+    inlines = [SegmentSongOccurrenceInline]
 
     @admin.display(boolean=True, description="Transcribed")
     def has_transcription(self, obj):
         return bool(obj.text)
 
-    @admin.display(description="Artist")
-    def get_song_artist(self, obj):
-        return obj.song.artist if obj.song else ""
-
-    @admin.display(description="Song title")
-    def get_song_title(self, obj):
-        return obj.song.title if obj.song else ""
+    @admin.display(description="Songs")
+    def get_songs(self, obj):
+        occurrences = obj.song_occurrences.select_related("song").all()
+        if not occurrences:
+            return ""
+        return ", ".join(str(occ.song) for occ in occurrences)
 
 
 @admin.register(ChunkSummary)
@@ -332,6 +386,87 @@ class FeedAnomalyAdmin(admin.ModelAdmin):
     list_display = ("recording", "anomaly_type", "start_offset", "end_offset", "audio_level_db", "detected_at")
     list_filter = ("anomaly_type",)
     search_fields = ("transcript",)
+
+
+@admin.register(DailySummarizationSettings)
+class DailySummarizationSettingsAdmin(admin.ModelAdmin):
+    fieldsets = [
+        ("Backend", {
+            "fields": ["backend"],
+            "description": "Select which LLM backend to use for daily broadcast summarization.",
+        }),
+        ("Local Ollama", {
+            "fields": ["local_ollama_model", "local_ollama_url"],
+            "description": "Ollama running locally. No API key needed.",
+        }),
+        ("Cloud Ollama", {
+            "classes": ("collapse",),
+            "fields": ["cloud_ollama_model", "cloud_ollama_url"],
+            "description": "ollama.com cloud API. Set OLLAMA_API_KEY environment variable.",
+        }),
+        ("OpenAI", {
+            "classes": ("collapse",),
+            "fields": ["openai_model"],
+            "description": "API key must be set in the OPENAI_API_KEY environment variable.",
+        }),
+        ("Anthropic (Claude)", {
+            "classes": ("collapse",),
+            "fields": ["anthropic_model"],
+            "description": "API key must be set in the ANTHROPIC_API_KEY environment variable.",
+        }),
+        ("Prompt", {
+            "fields": ["prompt_broadcast_day"],
+            "description": (
+                "Edit the prompt sent to the LLM. "
+                "Placeholders: {radio_name}, {radio_location}, {radio_language}, "
+                "{date}, {timezone}, {timeline}."
+            ),
+        }),
+        ("Future Features", {
+            "classes": ("collapse",),
+            "fields": ["enable_web_scraping"],
+        }),
+    ]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def changelist_view(self, request, extra_context=None):
+        from django.shortcuts import redirect
+        from django.urls import reverse
+        DailySummarizationSettings.get_settings()
+        return redirect(reverse("admin:radios_dailysummarizationsettings_change", args=[1]))
+
+
+class ShowBlockInline(admin.TabularInline):
+    model = ShowBlock
+    extra = 0
+    readonly_fields = ("name", "show_type", "start_time", "end_time", "order")
+    fields = ("order", "name", "show_type", "start_time", "end_time", "summary")
+
+
+@admin.register(BroadcastDaySummary)
+class BroadcastDaySummaryAdmin(admin.ModelAdmin):
+    list_display = ("radio", "date", "status", "show_count", "recording_count", "updated_at")
+    list_filter = ("status", "radio")
+    search_fields = ("overview", "radio__name")
+    readonly_fields = ("created_at", "updated_at")
+    inlines = [ShowBlockInline]
+
+    @admin.display(description="Shows")
+    def show_count(self, obj):
+        return obj.shows.count()
+
+
+@admin.register(ShowBlock)
+class ShowBlockAdmin(admin.ModelAdmin):
+    list_display = ("name", "broadcast_day", "show_type", "start_time", "end_time", "order")
+    list_filter = ("show_type",)
+    search_fields = ("name", "summary")
+    filter_horizontal = ("tags", "songs")
 
 
 class RadioAdminForm(forms.ModelForm):
@@ -365,6 +500,11 @@ class RadioAdmin(admin.ModelAdmin):
                 "'No Proxy' = direct connection. 'Use Global Proxy' = use the URL from Global Pipeline Settings. "
                 "'Custom Proxy' = use the proxy URL specified below."
             ),
+        }),
+        ("Stream Codec", {
+            "classes": ("collapse",),
+            "fields": ["stream_codec"],
+            "description": "Audio codec of the stream. Auto-detected on first recording if left blank.",
         }),
     ]
 

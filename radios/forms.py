@@ -58,6 +58,7 @@ class StreamVisibilityForm(forms.ModelForm):
             "fingerprinting_owner_visible", "fingerprinting_public_visible",
             "transcription_owner_visible", "transcription_public_visible",
             "summarization_owner_visible", "summarization_public_visible",
+            "daily_summarization_owner_visible", "daily_summarization_public_visible",
         ]
 
 
@@ -67,7 +68,7 @@ class StreamPipelineForm(forms.ModelForm):
         model = Stream
         fields = [
             "enable_recording", "enable_segmentation", "enable_fingerprinting",
-            "enable_transcription", "enable_summarization",
+            "enable_transcription", "enable_summarization", "enable_daily_summarization",
         ]
 
 
@@ -77,5 +78,5 @@ class GlobalPipelineSettingsForm(forms.ModelForm):
         model = GlobalPipelineSettings
         fields = [
             "enable_recording", "enable_segmentation", "enable_fingerprinting",
-            "enable_transcription", "enable_summarization",
+            "enable_transcription", "enable_summarization", "enable_daily_summarization",
         ]

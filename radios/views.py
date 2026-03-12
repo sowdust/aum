@@ -22,7 +22,7 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.db.models import Count, Q
 from django.utils import timezone
-from .models import RadioMembership, GlobalPipelineSettings, PIPELINE_STAGES, TranscriptionSettings, SummarizationSettings
+from .models import RadioMembership, GlobalPipelineSettings, PIPELINE_STAGES, TranscriptionSettings, SummarizationSettings, SongOccurrence, BroadcastDaySummary, DailySummarizationSettings
 from .forms import StreamVisibilityForm, StreamPipelineForm, GlobalPipelineSettingsForm
 
 def edit_radio(request, slug):
@@ -165,6 +165,37 @@ def admin_dashboard(request):
     ]
     any_running = bool(running_stages_list)
 
+    # Daily summarization stats (BroadcastDaySummary is radio+date level, not per-recording)
+    daily_summ_counts = {}
+    for row in BroadcastDaySummary.objects.values("status").annotate(n=Count("id")):
+        daily_summ_counts[row["status"]] = row["n"]
+
+    daily_summ_running = list(
+        BroadcastDaySummary.objects
+        .filter(status="running")
+        .select_related("radio")
+        .order_by("updated_at")[:20]
+    )
+
+    daily_summ_failed = list(
+        BroadcastDaySummary.objects
+        .filter(status="failed")
+        .select_related("radio")
+        .order_by("-updated_at")[:20]
+    )
+
+    daily_summ_cfg = DailySummarizationSettings.get_settings()
+
+    # Recording status panel
+    recording_streams = (
+        Stream.objects.filter(is_active=True, recording_status="recording")
+        .select_related("radio", "audio_feed")
+    )
+    recording_error_streams = (
+        Stream.objects.filter(recording_status="error")
+        .select_related("radio", "audio_feed")
+    )
+
     return render(request, "admin_dashboard.html", {
         "global_stage_flags": global_stage_flags,
         "pipeline_stages": PIPELINE_STAGES,
@@ -175,6 +206,12 @@ def admin_dashboard(request):
         "transcription_backend": transcription_cfg.get_backend_display(),
         "summarization_backend": summarization_cfg.get_backend_display(),
         "any_running": any_running,
+        "recording_streams": recording_streams,
+        "recording_error_streams": recording_error_streams,
+        "daily_summ_counts": daily_summ_counts,
+        "daily_summ_running": daily_summ_running,
+        "daily_summ_failed": daily_summ_failed,
+        "daily_summarization_backend": daily_summ_cfg.get_backend_display(),
         "now": timezone.now(),
     })
 
@@ -216,7 +253,8 @@ def radio_recordings(request, slug):
         recordings
         .select_related("stream")
         .prefetch_related(
-            "segments__song",
+            "segments__song_occurrences__song__artist_ref",
+            "segments__song_occurrences__song__genres",
             "chunk_summary__tags",
         )
         .order_by("-start_time")
@@ -229,6 +267,56 @@ def radio_recordings(request, slug):
         "end": end,
     }
     return render(request, "radio_recordings.html", context)
+
+def songs_played(request):
+    """
+    List all identified song occurrences, newest first.
+    Respects fingerprinting visibility settings.
+    Supports optional filtering by radio slug and date range.
+    """
+    qs = (
+        SongOccurrence.objects
+        .select_related(
+            "song", "song__artist_ref",
+            "segment__recording__stream__radio",
+        )
+        .prefetch_related("song__genres")
+        .order_by("-segment__recording__start_time", "start_offset")
+    )
+
+    # Visibility: only show occurrences from publicly-visible streams,
+    # plus owner-visible streams if the user is authenticated.
+    if request.user.is_staff:
+        pass  # staff see everything
+    else:
+        from radios.api.permissions import get_visible_stream_ids
+        visible = get_visible_stream_ids(request.user, "fingerprinting")
+        qs = qs.filter(segment__recording__stream_id__in=visible)
+
+    # Optional filters
+    radio_slug = request.GET.get("radio", "").strip()
+    if radio_slug:
+        qs = qs.filter(segment__recording__stream__radio__slug=radio_slug)
+
+    date_from = request.GET.get("date_from", "").strip()
+    if date_from:
+        qs = qs.filter(segment__recording__start_time__date__gte=date_from)
+
+    date_to = request.GET.get("date_to", "").strip()
+    if date_to:
+        qs = qs.filter(segment__recording__start_time__date__lte=date_to)
+
+    radios = Radio.objects.order_by("name")
+
+    context = {
+        "occurrences": qs[:200],  # cap at 200 rows; paginate later if needed
+        "radios": radios,
+        "radio_slug": radio_slug,
+        "date_from": date_from,
+        "date_to": date_to,
+    }
+    return render(request, "songs_played.html", context)
+
 
 @login_required
 def recording_delete(request, slug, recording_id):
@@ -253,6 +341,97 @@ def recording_delete(request, slug, recording_id):
     return render(request, "recording_confirm_delete.html", {
         "radio": radio,
         "recording": recording,
+    })
+
+
+def broadcast_day_list(request, slug):
+    """List available broadcast day summaries for a radio."""
+    radio = get_object_or_404(Radio, slug=slug)
+
+    qs = BroadcastDaySummary.objects.filter(radio=radio, status="done")
+
+    # Visibility check
+    if not (request.user.is_authenticated and request.user.is_staff):
+        is_owner = (
+            request.user.is_authenticated
+            and RadioMembership.objects.filter(
+                user=request.user, radio=radio, role="owner"
+            ).exists()
+        )
+        if is_owner:
+            # Show if any stream has daily_summarization_owner_visible
+            has_visible = radio.streams.filter(
+                daily_summarization_owner_visible=True
+            ).exists()
+            if not has_visible:
+                qs = qs.none()
+        else:
+            # Public: check daily_summarization_public_visible
+            has_visible = radio.streams.filter(
+                daily_summarization_public_visible=True
+            ).exists()
+            if not has_visible:
+                qs = qs.none()
+
+    return render(request, "broadcast_day_list.html", {
+        "radio": radio,
+        "broadcast_days": qs,
+    })
+
+
+def broadcast_day(request, slug, date):
+    """Display a structured broadcast day summary."""
+    from datetime import date as date_type
+
+    radio = get_object_or_404(Radio, slug=slug)
+
+    try:
+        day = date_type.fromisoformat(date)
+    except ValueError:
+        from django.http import Http404
+        raise Http404("Invalid date format. Use YYYY-MM-DD.")
+
+    summary = get_object_or_404(
+        BroadcastDaySummary, radio=radio, date=day, status="done"
+    )
+
+    # Visibility check
+    if not (request.user.is_authenticated and request.user.is_staff):
+        is_owner = (
+            request.user.is_authenticated
+            and RadioMembership.objects.filter(
+                user=request.user, radio=radio, role="owner"
+            ).exists()
+        )
+        if is_owner:
+            has_visible = radio.streams.filter(
+                daily_summarization_owner_visible=True
+            ).exists()
+        else:
+            has_visible = radio.streams.filter(
+                daily_summarization_public_visible=True
+            ).exists()
+
+        if not has_visible:
+            from django.core.exceptions import PermissionDenied
+            raise PermissionDenied()
+
+    # Prefetch related data
+    shows = (
+        summary.shows
+        .prefetch_related(
+            "tags",
+            "songs__song__artist_ref",
+            "songs__song__genres",
+            "songs__segment__recording",
+        )
+        .order_by("order", "start_time")
+    )
+
+    return render(request, "broadcast_day.html", {
+        "radio": radio,
+        "summary": summary,
+        "shows": shows,
     })
 
 

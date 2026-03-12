@@ -23,6 +23,7 @@ from rest_framework.test import APIClient
 from radios.models import (
     Radio, RadioMembership, RadioUser, Stream, Recording,
     TranscriptionSegment, Tag, ChunkSummary, DailySummary, Song,
+    SongOccurrence,
 )
 from radios.api.fts import sanitize_fts_query
 
@@ -222,13 +223,16 @@ class VisibilityEnforcementTest(TestCase):
         self.assertEqual(resp.data["count"], 1)
 
     def test_anonymous_cannot_see_owner_only_songs(self):
-        # Create a music segment linked to a Song row
+        # Create a music segment with a SongOccurrence
         song = Song.objects.create(title="Secret Song", artist="Hidden Artist")
-        TranscriptionSegment.objects.create(
+        seg = TranscriptionSegment.objects.create(
             recording=self.recording,
             segment_type="music",
             start_offset=60, end_offset=120,
-            song=song,
+        )
+        SongOccurrence.objects.create(
+            segment=seg, song=song,
+            start_offset=60, end_offset=120, confidence=1.0,
         )
         resp = self.client.get("/api/v1/search/songs/", {"q": "Secret Song"})
         self.assertEqual(resp.status_code, 200)
@@ -340,17 +344,27 @@ class SongSearchAPITest(TestCase):
             end_time=now,
             file="test.mp3",
         )
-        cls.queen_song = Song.objects.create(title="Bohemian Rhapsody", artist="Queen")
-        cls.lennon_song = Song.objects.create(title="Imagine", artist="John Lennon")
-        cls.song1 = TranscriptionSegment.objects.create(
+        cls.queen_song = Song.objects.create(
+            title="Bohemian Rhapsody", artist="Queen", shazam_key="queen_br",
+        )
+        cls.lennon_song = Song.objects.create(
+            title="Imagine", artist="John Lennon", shazam_key="lennon_imagine",
+        )
+        cls.seg1 = TranscriptionSegment.objects.create(
             recording=cls.recording,
             segment_type="music", start_offset=0, end_offset=180,
-            song=cls.queen_song,
         )
-        cls.song2 = TranscriptionSegment.objects.create(
+        cls.seg2 = TranscriptionSegment.objects.create(
             recording=cls.recording,
             segment_type="music", start_offset=180, end_offset=360,
-            song=cls.lennon_song,
+        )
+        SongOccurrence.objects.create(
+            segment=cls.seg1, song=cls.queen_song,
+            start_offset=10, end_offset=170, confidence=1.0,
+        )
+        SongOccurrence.objects.create(
+            segment=cls.seg2, song=cls.lennon_song,
+            start_offset=190, end_offset=350, confidence=1.0,
         )
 
     def setUp(self):
@@ -359,7 +373,7 @@ class SongSearchAPITest(TestCase):
     def test_search_by_artist(self):
         resp = self.client.get("/api/v1/search/songs/", {"artist": "queen"})
         self.assertEqual(resp.data["count"], 1)
-        self.assertEqual(resp.data["results"][0]["song_title"], "Bohemian Rhapsody")
+        self.assertEqual(resp.data["results"][0]["song"]["title"], "Bohemian Rhapsody")
 
     def test_search_by_title(self):
         resp = self.client.get("/api/v1/search/songs/", {"title": "imagine"})
@@ -370,11 +384,14 @@ class SongSearchAPITest(TestCase):
         self.assertEqual(resp.data["count"], 1)
 
     def test_grouped_results(self):
-        # Add another play of the same song (reuse existing Song row)
-        TranscriptionSegment.objects.create(
+        # Add another occurrence of the same song
+        seg3 = TranscriptionSegment.objects.create(
             recording=self.recording,
             segment_type="music", start_offset=360, end_offset=540,
-            song=self.queen_song,
+        )
+        SongOccurrence.objects.create(
+            segment=seg3, song=self.queen_song,
+            start_offset=370, end_offset=530, confidence=1.0,
         )
         resp = self.client.get("/api/v1/search/songs/", {"q": "queen", "group": "true"})
         self.assertEqual(resp.data["count"], 1)
