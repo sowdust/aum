@@ -28,6 +28,12 @@ class Command(AnalysisStageCommand):
         from radios.analysis.segmenter import segment_audio
 
         check_fn()
+
+        # Session recordings are already segmented inline by StreamProcessor
+        if recording.is_session:
+            logger.info("[%s] Session recording — already segmented inline.", recording.id)
+            return
+
         logger.info("[%s] Running segmentation...", recording.id)
 
         try:

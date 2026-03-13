@@ -49,3 +49,10 @@
 - [ ] Review and commit fingerprinter.py changes
 - [ ] Commit transcriber.py and test_transcription.py
 - [ ] Remove test.py and toremove.py if no longer needed
+
+
+## Production
+
+ - [ ] Batch scheduling of text to speech via GPU
+ - [ ] Text to speech BEFORE encoding?
+ - [ ] Compile tensor flow according to the machine

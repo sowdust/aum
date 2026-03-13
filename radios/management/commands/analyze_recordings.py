@@ -163,15 +163,20 @@ class Command(BaseCommand):
         logger.info("Processing recording %s (%s)", recording.id, recording)
 
         try:
-            if not recording.file or not recording.file.name:
-                raise FileNotFoundError(
-                    f"Recording {recording.id} has no file attached."
-                )
-            file_path = recording.file.path
-            if not os.path.exists(file_path):
-                raise FileNotFoundError(
-                    f"Recording file not found on disk: {file_path}"
-                )
+            # Session recordings (real-time pipeline) have no file —
+            # segments carry their own files.  Pass None as file_path.
+            if recording.is_session:
+                file_path = None
+            else:
+                if not recording.file or not recording.file.name:
+                    raise FileNotFoundError(
+                        f"Recording {recording.id} has no file attached."
+                    )
+                file_path = recording.file.path
+                if not os.path.exists(file_path):
+                    raise FileNotFoundError(
+                        f"Recording file not found on disk: {file_path}"
+                    )
 
             stream = recording.stream
 
@@ -291,6 +296,12 @@ class Command(BaseCommand):
         from radios.models import TranscriptionSegment
 
         check()
+
+        # Session recordings are already segmented inline by StreamProcessor
+        if recording.is_session:
+            logger.info("[%s] Session recording — already segmented inline.", recording.id)
+            return
+
         logger.info("[%s] Running segmentation...", recording.id)
         audio_segments = segment_audio(file_path)
         recording.segments.all().delete()
@@ -318,7 +329,16 @@ class Command(BaseCommand):
 
         for seg in music_segments:
             check()
-            result = fingerprint_segment(file_path, seg.start_offset, seg.end_offset)
+            # Prefer per-segment file (real-time pipeline) over recording file + offsets
+            if seg.file and seg.file.name:
+                source_path = seg.file.path
+                start = 0
+                end = seg.end_offset - seg.start_offset
+            else:
+                source_path = file_path
+                start = seg.start_offset
+                end = seg.end_offset
+            result = fingerprint_segment(source_path, start, end)
             if result:
                 song = Song.get_or_create_from_fingerprint(result)
                 seg.song = song
@@ -340,7 +360,16 @@ class Command(BaseCommand):
 
         for seg in speech_segments:
             check()
-            result = transcribe_segment(file_path, seg.start_offset, seg.end_offset, language_hint=language_hint)
+            # Prefer per-segment file (real-time pipeline) over recording file + offsets
+            if seg.file and seg.file.name:
+                source_path = seg.file.path
+                start = 0
+                end = seg.end_offset - seg.start_offset
+            else:
+                source_path = file_path
+                start = seg.start_offset
+                end = seg.end_offset
+            result = transcribe_segment(source_path, start, end, language_hint=language_hint)
             if result:
                 seg.text = result.text
                 seg.text_english = result.text_english

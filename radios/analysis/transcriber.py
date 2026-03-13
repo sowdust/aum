@@ -1,10 +1,12 @@
 """
 Speech transcription with language detection and English translation.
 
-Supports three backends (configured via the admin Transcription Settings page):
+Supports four backends (configured via the admin Transcription Settings page):
 - "local"     — faster-whisper (runs on CPU/GPU, no API key needed)
 - "openai"    — OpenAI Whisper API (OPENAI_API_KEY environment variable required)
 - "anthropic" — Claude audio input (ANTHROPIC_API_KEY environment variable required)
+- "ollama"    — Ollama OpenAI-compatible endpoint (local or cloud)
+- "runpod"    — RunPod serverless faster-whisper (RUNPOD_API_KEY environment variable required)
 
 Backend selection and model parameters are stored in the TranscriptionSettings
 database model and configurable from the Django admin. API keys are never stored
@@ -38,6 +40,7 @@ import time
 from typing import Optional
 
 from django.conf import settings
+from functools import lru_cache
 
 logger = logging.getLogger("broadcast_analysis")
 
@@ -56,6 +59,12 @@ _CHUNK_OVERLAP = 5.0
 # Retry settings for API backends.
 _MAX_RETRIES = 3
 _RETRY_BASE_DELAY = 1.0  # seconds, doubles each retry
+
+# RunPod polling / concurrency constants.
+_RUNPOD_POLL_INITIAL = 2.0    # seconds before first status check
+_RUNPOD_POLL_MAX     = 30.0   # max polling interval (seconds)
+_RUNPOD_TIMEOUT      = 300.0  # total timeout per batch (seconds)
+_RUNPOD_MAX_PARALLEL = 10     # max concurrent job submissions
 
 
 @dataclasses.dataclass
@@ -96,6 +105,11 @@ def transcribe_segment(
     # Apply boundary trim
     trimmed_start = start + _BOUNDARY_TRIM
     trimmed_end = end - _BOUNDARY_TRIM
+
+    if trimmed_end <= trimmed_start:
+        logger.debug("Segment vanished after boundary trim")
+        return None
+
     duration = trimmed_end - trimmed_start
 
     if duration < _MIN_DURATION:
@@ -136,6 +150,8 @@ def _transcribe_slice(
             return _transcribe_anthropic(audio_path, language_hint)
         elif backend == "ollama":
             return _transcribe_ollama(audio_path, language_hint)
+        elif backend == "runpod":
+            return _transcribe_runpod(audio_path, language_hint)
         else:
             logger.error("Unknown transcription backend: %s", backend)
             return None
@@ -167,12 +183,14 @@ def _extract_audio_slice(
     cmd = [
         "ffmpeg", "-y",
         "-ss", str(start),
-        "-t", str(duration),
         "-i", source_path,
+        "-t", str(duration),
+        "-avoid_negative_ts", "make_zero"
     ] + codec_args + [tmp_path]
 
     try:
-        proc = subprocess.run(cmd, capture_output=True, timeout=120)
+        timeout = min(600, duration * 2 + 30)
+        proc = subprocess.run(cmd, capture_output=True, timeout=timeout)
         if proc.returncode != 0:
             logger.error(
                 "ffmpeg extraction failed for %s [%.1f-%.1f]: %s",
@@ -246,6 +264,7 @@ def _split_and_transcribe(
 _local_model = None
 
 
+@lru_cache
 def _get_transcription_settings():
     """Load TranscriptionSettings singleton from the database."""
     from radios.models import TranscriptionSettings
@@ -619,3 +638,349 @@ def _transcribe_anthropic(audio_path: str, language_hint: str) -> Optional[Trans
                 logger.error("Anthropic API failed after %d retries: %s", _MAX_RETRIES, exc)
                 return None
     return None
+
+
+# ---------------------------------------------------------------------------
+# Backend: runpod (faster-whisper serverless)
+# ---------------------------------------------------------------------------
+
+def _submit_runpod_job(
+    model: str,
+    endpoint_id: str,
+    api_key: str,
+    language_hint: str = "",
+    translate: bool = False,
+    sync: bool = False,
+    audio_url: str = "",
+    audio_path: str = "",
+) -> Optional[dict]:
+    """
+    Submit a transcription job to a RunPod serverless endpoint.
+
+    Provide either audio_url (publicly accessible HTTP/S URL) or audio_path (local file,
+    sent as base64). audio_url takes priority if both are given.
+
+    sync=True uses /runsync and returns the output dict directly.
+    sync=False uses /run and returns {"id": job_id}.
+    Returns None on failure.
+    """
+    try:
+        import requests
+    except ImportError:
+        logger.error("requests package is not installed")
+        return None
+
+    route = "runsync" if sync else "run"
+    url = f"https://api.runpod.ai/v2/{endpoint_id}/{route}"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    input_payload: dict = {
+        "model": model,
+        "transcription": "plain_text",
+        "translate": translate,
+    }
+
+    if audio_url and not settings.DEBUG:
+        input_payload["audio"] = audio_url
+    elif audio_path:
+        try:
+            with open(audio_path, "rb") as f:
+                input_payload["audio_base64"] = base64.standard_b64encode(f.read()).decode("ascii")
+        except Exception as exc:
+            logger.error("Failed to read audio file %s for RunPod: %s", audio_path, exc)
+            return None
+    else:
+        logger.error("RunPod: neither audio_url nor audio_path provided")
+        return None
+
+    if language_hint:
+        lang = language_hint.split(",")[0].strip()[:2].lower()
+        if lang:
+            input_payload["language"] = lang
+
+    try:
+        resp = requests.post(
+            url, headers=headers, json={"input": input_payload}, timeout=60
+        )
+        if not resp.ok:
+            logger.error(
+                "RunPod job submission to %s failed: %s %s — response: %s",
+                url, resp.status_code, resp.reason,
+                resp.text[:500],
+            )
+            return None
+        data = resp.json()
+    except Exception as exc:
+        logger.error("RunPod job submission to %s failed: %s", url, exc)
+        return None
+
+    if sync:
+        output = data.get("output")
+        if output is None:
+            logger.error("RunPod runsync returned no output: %s", data)
+        return output  # may be None
+
+    job_id = data.get("id")
+    if not job_id:
+        logger.error("RunPod run returned no job id: %s", data)
+        return None
+    return {"id": job_id}
+
+
+def _poll_runpod_jobs(
+    job_ids: list,
+    endpoint_id: str,
+    api_key: str,
+) -> dict:
+    """
+    Poll RunPod status endpoints for a list of job IDs.
+
+    Returns a dict mapping job_id → output dict (or None on failure/timeout).
+    """
+    try:
+        import requests
+    except ImportError:
+        logger.error("requests package is not installed")
+        return {jid: None for jid in job_ids}
+
+    headers = {"Authorization": f"Bearer {api_key}"}
+    pending = set(job_ids)
+    results = {}
+    interval = _RUNPOD_POLL_INITIAL
+    deadline = time.monotonic() + _RUNPOD_TIMEOUT
+
+    while pending:
+        if time.monotonic() >= deadline:
+            logger.error(
+                "RunPod polling timed out after %.0fs for jobs: %s",
+                _RUNPOD_TIMEOUT, list(pending),
+            )
+            for jid in pending:
+                results[jid] = None
+            break
+
+        time.sleep(interval)
+        interval = min(interval * 2, _RUNPOD_POLL_MAX)
+
+        completed_this_round = set()
+        for job_id in list(pending):
+            status_url = f"https://api.runpod.ai/v2/{endpoint_id}/status/{job_id}"
+            try:
+                resp = requests.get(status_url, headers=headers, timeout=30)
+                resp.raise_for_status()
+                data = resp.json()
+            except Exception as exc:
+                logger.warning("RunPod status check for %s failed: %s", job_id, exc)
+                continue
+
+            status = data.get("status", "")
+            if status == "COMPLETED":
+                results[job_id] = data.get("output")
+                completed_this_round.add(job_id)
+            elif status in ("FAILED", "CANCELLED"):
+                logger.error(
+                    "RunPod job %s ended with status %s: %s",
+                    job_id, status, data.get("error", ""),
+                )
+                results[job_id] = None
+                completed_this_round.add(job_id)
+            # else: IN_QUEUE / IN_PROGRESS — keep polling
+
+        pending -= completed_this_round
+
+    return results
+
+
+def _parse_runpod_output(output: dict) -> Optional[TranscriptionResult]:
+    """Parse a RunPod job output dict into a TranscriptionResult."""
+    text = (output.get("transcription") or "").strip()
+    if not text:
+        return None
+    language = output.get("detected_language", "") or ""
+    return TranscriptionResult(
+        text=text,
+        text_english="",
+        language=language,
+        confidence=1.0,  # RunPod does not return confidence scores
+    )
+
+
+def _transcribe_runpod(
+    audio_path: str,
+    language_hint: str,
+    audio_url: str = "",
+) -> Optional[TranscriptionResult]:
+    """
+    Transcribe a single audio file via RunPod serverless faster-whisper.
+
+    Uses /runsync for single-file calls with exponential-backoff retry.
+    A second translation job is submitted if the detected language is not English.
+    """
+    api_key = settings.RUNPOD_API_KEY
+    cfg = _get_transcription_settings()
+    endpoint_id = cfg.runpod_endpoint_id
+
+    if not api_key or not endpoint_id:
+        logger.error(
+            "RunPod backend requires RUNPOD_API_KEY env var and runpod_endpoint_id in "
+            "TranscriptionSettings — one or both are missing."
+        )
+        return None
+
+    output = None
+    for attempt in range(_MAX_RETRIES):
+        output = _submit_runpod_job(
+            audio_path=audio_path,
+            model=cfg.runpod_model,
+            endpoint_id=endpoint_id,
+            api_key=api_key,
+            language_hint=language_hint,
+            translate=False,
+            sync=True,
+            audio_url=audio_url,
+        )
+        if output is not None:
+            break
+        if attempt < _MAX_RETRIES - 1:
+            delay = _RETRY_BASE_DELAY * (2 ** attempt)
+            logger.warning(
+                "RunPod transcription failed (attempt %d/%d), retrying in %.1fs",
+                attempt + 1, _MAX_RETRIES, delay,
+            )
+            time.sleep(delay)
+    else:
+        logger.error("RunPod transcription failed after %d retries", _MAX_RETRIES)
+        return None
+
+    result = _parse_runpod_output(output)
+    if result is None:
+        return None
+
+    # If non-English and translation is enabled, get English translation
+    if cfg.runpod_translate and result.language and result.language != "en":
+        for attempt in range(_MAX_RETRIES):
+            en_output = _submit_runpod_job(
+                audio_path=audio_path,
+                model=cfg.runpod_model,
+                endpoint_id=endpoint_id,
+                api_key=api_key,
+                language_hint=language_hint,
+                translate=True,
+                sync=True,
+                audio_url=audio_url,
+            )
+            if en_output is not None:
+                en_result = _parse_runpod_output(en_output)
+                if en_result:
+                    result.text_english = en_result.text
+                break
+            if attempt < _MAX_RETRIES - 1:
+                time.sleep(_RETRY_BASE_DELAY * (2 ** attempt))
+
+    return result
+
+
+def transcribe_runpod_batch(segments_data: list) -> dict:
+    """
+    Transcribe multiple segments in parallel via RunPod serverless.
+
+    segments_data: list of dicts with keys:
+        idx (int)          — caller-assigned identifier, returned in result dict
+        audio_path (str)   — path to extracted WAV file
+        language_hint (str)
+        audio_url (str)    — public URL (empty string if unavailable)
+
+    Returns {idx: TranscriptionResult | None}.
+    """
+    api_key = settings.RUNPOD_API_KEY
+    cfg = _get_transcription_settings()
+    endpoint_id = cfg.runpod_endpoint_id
+
+    result_map = {item["idx"]: None for item in segments_data}
+
+    if not api_key or not endpoint_id:
+        logger.error(
+            "RunPod batch: RUNPOD_API_KEY or runpod_endpoint_id missing — skipping all segments."
+        )
+        return result_map
+
+    # Submit async jobs in batches of _RUNPOD_MAX_PARALLEL
+    all_job_ids: dict = {}  # job_id → idx
+
+    for batch_start in range(0, len(segments_data), _RUNPOD_MAX_PARALLEL):
+        batch = segments_data[batch_start : batch_start + _RUNPOD_MAX_PARALLEL]
+        batch_jobs: dict = {}
+        for item in batch:
+            job_resp = _submit_runpod_job(
+                audio_path=item["audio_path"],
+                model=cfg.runpod_model,
+                endpoint_id=endpoint_id,
+                api_key=api_key,
+                language_hint=item.get("language_hint", ""),
+                translate=False,
+                sync=False,
+                audio_url=item.get("audio_url", ""),
+            )
+            if job_resp and job_resp.get("id"):
+                batch_jobs[job_resp["id"]] = item["idx"]
+            else:
+                logger.error("RunPod batch: failed to submit job for segment idx=%s", item["idx"])
+
+        if batch_jobs:
+            # Poll this batch before submitting the next to respect _RUNPOD_MAX_PARALLEL
+            batch_results = _poll_runpod_jobs(list(batch_jobs.keys()), endpoint_id, api_key)
+            for job_id, output in batch_results.items():
+                idx = batch_jobs[job_id]
+                if output is not None:
+                    all_job_ids[job_id] = idx
+                    result_map[idx] = _parse_runpod_output(output)
+
+    # Second pass: translation for non-English results (if enabled)
+    non_english_segments = []
+    if cfg.runpod_translate:
+        non_english_segments = [
+            item for item in segments_data
+            if result_map.get(item["idx"]) is not None
+            and result_map[item["idx"]].language not in ("", "en")
+        ]
+
+    if non_english_segments:
+        logger.info(
+            "RunPod batch: submitting translation jobs for %d non-English segment(s)",
+            len(non_english_segments),
+        )
+        for batch_start in range(0, len(non_english_segments), _RUNPOD_MAX_PARALLEL):
+            batch = non_english_segments[batch_start : batch_start + _RUNPOD_MAX_PARALLEL]
+            batch_jobs = {}
+            for item in batch:
+                job_resp = _submit_runpod_job(
+                    audio_path=item["audio_path"],
+                    model=cfg.runpod_model,
+                    endpoint_id=endpoint_id,
+                    api_key=api_key,
+                    language_hint=item.get("language_hint", ""),
+                    translate=True,
+                    sync=False,
+                    audio_url=item.get("audio_url", ""),
+                )
+                if job_resp and job_resp.get("id"):
+                    batch_jobs[job_resp["id"]] = item["idx"]
+                else:
+                    logger.error(
+                        "RunPod batch: failed to submit translation job for segment idx=%s",
+                        item["idx"],
+                    )
+
+            if batch_jobs:
+                batch_results = _poll_runpod_jobs(list(batch_jobs.keys()), endpoint_id, api_key)
+                for job_id, output in batch_results.items():
+                    idx = batch_jobs[job_id]
+                    if output is not None:
+                        en_result = _parse_runpod_output(output)
+                        if en_result and result_map[idx]:
+                            result_map[idx].text_english = en_result.text
+
+    return result_map

@@ -22,7 +22,7 @@ You are about to permanently delete a recording.
 <div><span class="label">duration</span> {{ recording.duration }}</div>
 {% endif %}
 
-<div><span class="label">file</span> {{ recording.file.name }}</div>
+<div><span class="label">file</span> {% if recording.file %}{{ recording.file.name }}{% else %}streaming session{% endif %}</div>
 
 </div>
 

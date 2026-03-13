@@ -1,0 +1,224 @@
+{% extends "base.html" %}
+{% load static radios_extras %}
+
+{% block title %}Songs Played{% endblock %}
+
+{% block content %}
+
+<div class="panel">
+
+  <div class="panel-title">Songs Played</div>
+
+  <!-- FILTER -->
+
+  <form method="get" class="filter-grid" style="margin-bottom:16px;">
+
+    <div>
+      <label class="section-label">Radio</label>
+      <select name="radio" style="background:#0d1117;color:#c9d1d9;border:1px solid #30363d;padding:5px 8px;">
+        <option value="">— all —</option>
+        {% for r in radios %}
+        <option value="{{ r.slug }}" {% if r.slug == radio_slug %}selected{% endif %}>{{ r.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div>
+      <label class="section-label">From</label>
+      <input type="date" name="date_from" value="{{ date_from }}"
+             style="background:#0d1117;color:#c9d1d9;border:1px solid #30363d;padding:5px 8px;">
+    </div>
+
+    <div>
+      <label class="section-label">To</label>
+      <input type="date" name="date_to" value="{{ date_to }}"
+             style="background:#0d1117;color:#c9d1d9;border:1px solid #30363d;padding:5px 8px;">
+    </div>
+
+    <div class="filter-actions">
+      <button type="submit" class="button">Filter</button>
+      {% if radio_slug or date_from or date_to %}
+      <a href="{% url 'songs_played' %}" class="button-small">Clear</a>
+      {% endif %}
+    </div>
+
+  </form>
+
+  <!-- RESULTS -->
+
+  {% if occurrences %}
+
+  <table class="mono-table">
+    <thead>
+      <tr>
+        <th style="width:60px;">Art</th>
+        <th>Track</th>
+        <th>Genre</th>
+        <th>Radio</th>
+        <th>Date</th>
+        <th>Offset</th>
+        <th>Play</th>
+      </tr>
+    </thead>
+    <tbody>
+
+    {% for occ in occurrences %}
+
+    {% with song=occ.song rec=occ.segment.recording %}
+
+    <tr>
+
+      <!-- ALBUM ART -->
+      <td>
+        {% if song.album_cover_url %}
+        <img src="{{ song.album_cover_url }}" alt=""
+             style="width:52px;height:52px;object-fit:cover;border:1px solid #30363d;">
+        {% else %}
+        <div style="width:52px;height:52px;background:#0d1117;border:1px solid #21262d;
+                    display:flex;align-items:center;justify-content:center;
+                    font-size:1.4rem;color:#484f58;">♪</div>
+        {% endif %}
+      </td>
+
+      <!-- TRACK INFO -->
+      <td>
+        <div class="song-title">{{ song.title }}</div>
+        <div style="font-size:0.8rem;color:#8b949e;">
+          {% if song.artist %}{{ song.artist }}{% endif %}
+          {% if song.album_name %}
+          <span style="color:#484f58;"> · </span>{{ song.album_name }}{% if song.release_year %} ({{ song.release_year }}){% endif %}
+          {% endif %}
+        </div>
+        {% if song.musicbrainz_id %}
+        <a href="https://musicbrainz.org/recording/{{ song.musicbrainz_id }}"
+           target="_blank" style="font-size:0.7rem;color:#8b949e;">MusicBrainz</a>
+        {% endif %}
+      </td>
+
+      <!-- GENRE -->
+      <td>
+        {% for genre in song.genres.all %}
+        <span class="tag">{{ genre.name }}</span>
+        {% empty %}
+        <span style="color:#484f58;">—</span>
+        {% endfor %}
+      </td>
+
+      <!-- RADIO -->
+      <td>
+        {% with radio=rec.stream.radio %}
+        {% if radio %}
+        <a href="{% url 'radio_detail' radio.slug %}">{{ radio.name }}</a>
+        <div style="font-size:0.75rem;">
+          <a href="{% url 'radio_recordings' radio.slug %}" style="color:#8b949e;">recordings</a>
+        </div>
+        {% else %}
+        <span style="color:#484f58;">—</span>
+        {% endif %}
+        {% endwith %}
+      </td>
+
+      <!-- DATE -->
+      <td style="color:#8b949e;font-size:0.85rem;white-space:nowrap;">
+        {{ rec.start_time|date:"Y-m-d" }}<br>
+        <span style="color:#484f58;">{{ rec.start_time|date:"H:i" }}</span>
+      </td>
+
+      <!-- OFFSET -->
+      <td style="color:#8b949e;font-size:0.85rem;white-space:nowrap;">
+        {{ occ.start_offset|format_seconds }}
+        <span style="color:#484f58;">→</span>
+        {{ occ.end_offset|format_seconds }}
+      </td>
+
+      <!-- PLAYER -->
+      <td>
+        {% if occ.segment.file %}
+        <audio controls preload="none"
+               src="{{ occ.segment.file.url }}"
+               class="song-player"
+               style="width:200px;height:28px;">
+        </audio>
+        {% elif rec.file %}
+        <audio controls preload="none"
+               data-src="{{ rec.file.url }}"
+               data-start="{{ occ.start_offset }}"
+               data-end="{{ occ.end_offset }}"
+               class="song-player"
+               style="width:200px;height:28px;">
+        </audio>
+        {% else %}
+        <span style="color:#484f58;font-size:0.8rem;">no file</span>
+        {% endif %}
+      </td>
+
+    </tr>
+
+    {% endwith %}
+
+    {% endfor %}
+
+    </tbody>
+  </table>
+
+  {% if occurrences|length == 200 %}
+  <div class="empty-note" style="margin-top:10px;">Showing first 200 results. Use filters to narrow down.</div>
+  {% endif %}
+
+  {% else %}
+
+  <div class="empty-note">No songs identified yet.</div>
+
+  {% endif %}
+
+</div>
+
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+
+  const players = document.querySelectorAll("audio.song-player");
+
+  players.forEach(function (player) {
+    const start = parseFloat(player.dataset.start);
+    const end   = parseFloat(player.dataset.end);
+    let stopping = false;
+
+    player.addEventListener("play", function () {
+      // Stop all other players
+      players.forEach(function (p) {
+        if (p !== player) p.pause();
+      });
+
+      // Lazy-load the source on first play; seek only after metadata is ready
+      if (!player.src) {
+        player.src = player.dataset.src;
+        player.addEventListener("loadedmetadata", function () {
+          player.currentTime = start;
+          player.play();
+        }, { once: true });
+        return;
+      }
+
+      // Seek to segment start if outside range
+      if (player.currentTime < start || player.currentTime > end) {
+        player.currentTime = start;
+      }
+    });
+
+    player.addEventListener("timeupdate", function () {
+      if (!stopping && player.currentTime >= end) {
+        stopping = true;
+        player.pause();
+        player.currentTime = start;
+        stopping = false;
+      }
+    });
+  });
+
+});
+</script>
+{% endblock %}

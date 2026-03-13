@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% load static radios_extras %}
 
-{% block title %}Recordings — {{ radio.name }}{% endblock %}
+{% block title %}Segments — {{ radio.name }}{% endblock %}
 
 {% block content %}
 
@@ -12,7 +12,7 @@
 <div class="panel recordings-header">
 
 <div>
-<h1>Recordings — {{ radio.name }}</h1>
+<h1>Segments — {{ radio.name }}</h1>
 </div>
 
 <div>
@@ -40,10 +40,21 @@
 <input type="datetime-local" name="end" value="{{ end }}">
 </div>
 
+<div>
+<label>Type</label>
+<select name="type">
+<option value="">— all —</option>
+<option value="speech" {% if seg_type == "speech" %}selected{% endif %}>Speech</option>
+<option value="music" {% if seg_type == "music" %}selected{% endif %}>Music</option>
+<option value="noise" {% if seg_type == "noise" %}selected{% endif %}>Noise</option>
+<option value="noEnergy" {% if seg_type == "noEnergy" %}selected{% endif %}>Silence</option>
+</select>
+</div>
+
 <div class="filter-actions">
 <button type="submit" class="button">Filter</button>
 
-{% if start or end %}
+{% if start or end or seg_type %}
 <a href="?" class="button-small">Clear</a>
 {% endif %}
 </div>
@@ -53,36 +64,44 @@
 </form>
 
 
-<!-- RECORDINGS -->
+<!-- SEGMENTS -->
 
 <div class="recordings-list">
 
-{% for rec in recordings %}
+{% for seg in segments %}
 
 <details class="recording-block">
 
 <summary class="recording-summary">
 
 <div class="rec-stream">
-{{ rec.stream.name }}
+{{ seg.recording.stream.name }}
 </div>
 
 <div class="rec-time">
-{{ rec.start_time|date:"Y-m-d H:i:s" }}
+{% if seg.absolute_start_time %}
+{{ seg.absolute_start_time|date:"Y-m-d H:i:s" }}
 →
-{{ rec.end_time|date:"H:i:s" }}
-
-{% if rec.duration %}
-({{ rec.duration }})
+{{ seg.absolute_end_time|date:"H:i:s" }}
+{% else %}
+{{ seg.recording.start_time|date:"Y-m-d" }}
+{{ seg.start_offset|format_seconds }}
+→
+{{ seg.end_offset|format_seconds }}
 {% endif %}
 </div>
 
 <div class="rec-stages">
 
-{% include "components/stage_badge.html" with label="Seg" status=rec.segmentation_status %}
-{% include "components/stage_badge.html" with label="FP" status=rec.fingerprinting_status %}
-{% include "components/stage_badge.html" with label="Trans" status=rec.transcription_status %}
-{% include "components/stage_badge.html" with label="Sum" status=rec.summarization_status %}
+<span class="segment-type type-{{ seg.segment_type }}">
+{{ seg.get_segment_type_display }}
+</span>
+
+{% if seg.energy_db %}
+<span class="segment-meta" style="font-size:0.75rem;color:#8b949e;margin-left:0.5rem;">
+{{ seg.energy_db|floatformat:1 }} dB
+</span>
+{% endif %}
 
 </div>
 
@@ -92,103 +111,35 @@
 <div class="recording-content">
 
 
-<!-- FULL RECORDING -->
+<!-- PLAYER -->
 
 <div class="recording-player">
 
-<div class="section-label">Full recording</div>
-
-{% if rec.file %}
-<audio controls preload="none"
-       data-src="{{ rec.file.url }}"
-       class="full-player">
-</audio>
-
-<div class="player-actions">
-
-<a href="{{ rec.file.url }}" download class="button-small">
-Download
-</a>
-
-{% if request.user.is_staff %}
-<a href="{% url 'recording_delete' slug=radio.slug recording_id=rec.id %}" class="button-small danger">
-Delete
-</a>
-{% endif %}
-
-</div>
-{% else %}
-<div class="empty-note">Streaming session — segments have individual audio files.</div>
-{% if request.user.is_staff %}
-<div class="player-actions">
-<a href="{% url 'recording_delete' slug=radio.slug recording_id=rec.id %}" class="button-small danger">
-Delete
-</a>
-</div>
-{% endif %}
-{% endif %}
-
-
-</div>
-
-
-<!-- ERRORS -->
-
-{% if rec.segmentation_status == "failed" or rec.fingerprinting_status == "failed" or rec.transcription_status == "failed" or rec.summarization_status == "failed" %}
-
-<div class="pipeline-error">
-
-<div class="section-label">Pipeline errors</div>
-
-<pre>{{ rec.analysis_error }}</pre>
-
-</div>
-
-{% endif %}
-
-
-<!-- SEGMENTS -->
-
-{% if rec.segmentation_status == "done" %}
-
-<div class="segments">
-
-<div class="section-label">
-Segments ({{ rec.segments.count }})
-</div>
-
-{% for seg in rec.segments.all %}
-
-<div class="segment-block">
-
-<div class="segment-header">
-
-<span class="segment-type type-{{ seg.segment_type }}">
-{{ seg.get_segment_type_display }}
-</span>
-
-<span class="segment-time">
-{{ seg.start_offset|format_seconds }}
-→
-{{ seg.end_offset|format_seconds }}
-</span>
-
-</div>
-
+<div class="section-label">Audio</div>
 
 {% if seg.file %}
 <audio controls preload="none"
        src="{{ seg.file.url }}"
        class="segment-player">
 </audio>
-{% elif rec.file %}
+
+<div class="player-actions">
+<a href="{{ seg.file.url }}" download class="button-small">
+Download
+</a>
+</div>
+{% elif seg.recording.file %}
 <audio controls preload="none"
-       data-src="{{ rec.file.url }}"
+       data-src="{{ seg.recording.file.url }}"
        data-start="{{ seg.start_offset }}"
        data-end="{{ seg.end_offset }}"
        class="segment-player">
 </audio>
+{% else %}
+<div class="empty-note">No audio file available.</div>
 {% endif %}
+
+</div>
 
 
 <!-- SPEECH -->
@@ -255,6 +206,14 @@ Language: {{ seg.language }}
 </div>
 {% endif %}
 
+{% if occ.song.genres.all %}
+<div class="tag-list" style="margin-top: 0.25rem;">
+{% for genre in occ.song.genres.all %}
+<span class="tag">{{ genre.name }}</span>
+{% endfor %}
+</div>
+{% endif %}
+
 {% if occ.song.musicbrainz_id %}
 <a href="https://musicbrainz.org/recording/{{ occ.song.musicbrainz_id }}" target="_blank">
 MusicBrainz
@@ -273,46 +232,19 @@ MusicBrainz
 
 {% endif %}
 
-</div>
 
-{% empty %}
+<!-- SEGMENT META -->
 
-<div class="empty-note">No segments found.</div>
-
-{% endfor %}
-
-</div>
-
+<div class="segment-meta" style="margin-top:0.5rem;font-size:0.75rem;color:#484f58;">
+Recording: {{ seg.recording.id|truncatechars:12 }}
+&middot;
+Offset: {{ seg.start_offset|format_seconds }} → {{ seg.end_offset|format_seconds }}
+{% if seg.absolute_start_time %}
+&middot;
+Wall clock: {{ seg.absolute_start_time|date:"H:i:s" }} → {{ seg.absolute_end_time|date:"H:i:s" }}
 {% endif %}
-
-
-<!-- SUMMARY -->
-
-{% if rec.chunk_summary %}
-
-<div class="summary-block">
-
-<div class="section-label">Summary</div>
-
-<div class="summary-text">
-{{ rec.chunk_summary.summary_text }}
 </div>
 
-{% if rec.chunk_summary.tags.all %}
-
-<div class="tag-list">
-
-{% for tag in rec.chunk_summary.tags.all %}
-<span class="tag">{{ tag.name }}</span>
-{% endfor %}
-
-</div>
-
-{% endif %}
-
-</div>
-
-{% endif %}
 
 </div>
 
@@ -321,12 +253,32 @@ MusicBrainz
 {% empty %}
 
 <div class="empty-note center">
-No recordings found for this time range.
+No segments found for this time range.
 </div>
 
 {% endfor %}
 
 </div>
+
+
+<!-- PAGINATION -->
+
+{% if segments.has_other_pages %}
+<div class="panel" style="text-align:center;">
+{% if segments.has_previous %}
+<a href="?{{ page_qs }}&page={{ segments.previous_page_number }}" class="button-small">← Previous</a>
+{% endif %}
+
+<span style="margin:0 1rem;color:#8b949e;">
+Page {{ segments.number }} of {{ segments.paginator.num_pages }}
+({{ segments.paginator.count }} segment{{ segments.paginator.count|pluralize }})
+</span>
+
+{% if segments.has_next %}
+<a href="?{{ page_qs }}&page={{ segments.next_page_number }}" class="button-small">Next →</a>
+{% endif %}
+</div>
+{% endif %}
 
 </div>
 
@@ -352,18 +304,18 @@ document.addEventListener("DOMContentLoaded", function () {
         }
       });
 
-      // Lazy load audio source
-      if (!player.src) {
+      // Lazy load audio source (for recording-file-based players)
+      if (!player.src && player.dataset.src) {
         player.src = player.dataset.src;
       }
 
-      if (player.currentTime < start || player.currentTime > end) {
+      if (!isNaN(start) && (player.currentTime < start || player.currentTime > end)) {
         player.currentTime = start;
       }
     });
 
     player.addEventListener("timeupdate", () => {
-      if (!stopping && player.currentTime >= end) {
+      if (!isNaN(end) && !stopping && player.currentTime >= end) {
         stopping = true;
         player.pause();
         player.currentTime = start;

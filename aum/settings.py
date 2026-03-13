@@ -273,5 +273,11 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
 # Ollama API key (required only for ollama.com cloud; leave empty for local Ollama)
 OLLAMA_API_KEY = os.environ.get("OLLAMA_API_KEY", "")
+
+# RunPod serverless API key (required for runpod transcription backend)
+RUNPOD_API_KEY = os.environ.get("RUNPOD_API_KEY", "")
 TRANSCRIPTION_LLM_MODEL = "claude-sonnet-4-20250514"
 ANALYZE_POLL_INTERVAL = 30   # seconds between daemon polling cycles
+
+
+FINGERPRINT_SLEEP_SECONDS = 1

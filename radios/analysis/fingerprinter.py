@@ -17,17 +17,18 @@ import subprocess
 import tempfile
 import time
 from typing import Optional
+import threading
 
 logger = logging.getLogger("broadcast_analysis")
 
 _MIN_DURATION = 10.0   # Shazam needs ~5s; 10s gives a safe margin
-_MAX_CLIP = 120.0
+_MAX_CLIP = 60.0
 _BOUNDARY_TRIM = 3.0   # Trim 3s from each edge to avoid fade-in/out noise
 
 # Sliding window constants
-_WINDOW = 30.0             # Clip size for each Shazam call
+_WINDOW = 15.0             # Clip size for each Shazam call
 _DEFAULT_TRACK_DUR = 240.0 # 4 min assumed track length
-_FAIL_STEP = 15.0          # Advance on no match (was 30s, smaller = more attempts)
+_FAIL_STEP = 8.0          # Advance on no match (was 30s, smaller = more attempts)
 _MAX_ATTEMPTS = 20         # Safety cap per segment
 
 # Rate limiting
@@ -35,6 +36,8 @@ _INTER_REQUEST_DELAY = 2.0   # Seconds to wait between Shazam API calls
 _RETRY_ATTEMPTS = 3          # Retries on transient failure (covers 429s)
 _RETRY_BASE_DELAY = 10.0     # Initial retry wait in seconds (doubled each retry)
 
+_shazam_client = None
+_shazam_lock = threading.Lock()
 
 @dataclasses.dataclass
 class FingerprintResult:
@@ -50,6 +53,16 @@ class FingerprintResult:
     estimated_start: float  # absolute offset in recording
     estimated_end: float    # absolute offset in recording
 
+
+def get_shazam_client(shazam_cls):
+    global _shazam_client
+
+    if _shazam_client is None:
+        with _shazam_lock:
+            if _shazam_client is None:
+                _shazam_client = shazam_cls()
+
+    return _shazam_client
 
 def fingerprint_segment(
     source_path: str,
@@ -111,7 +124,7 @@ def fingerprint_segment_sliding(
         if skip:
             continue
 
-        clip_duration = min(_WINDOW, trimmed_end - pos)
+        clip_duration = min(_WINDOW, _MAX_CLIP, trimmed_end - pos)
         if clip_duration < _MIN_DURATION:
             break
 
@@ -133,7 +146,7 @@ def fingerprint_segment_sliding(
                 # New song found
                 result.estimated_start = pos
                 track_dur = _DEFAULT_TRACK_DUR
-                result.estimated_end = pos + track_dur
+                result.estimated_end = min(pos + track_dur, trimmed_end)
                 if result.shazam_key:
                     seen_keys.add(result.shazam_key)
                 results.append(result)
@@ -231,7 +244,7 @@ def _recognize_sync(shazam_cls, audio_path: str) -> Optional[FingerprintResult]:
 
 async def _recognize(shazam_cls, audio_path: str) -> Optional[FingerprintResult]:
     """Call Shazam recognition and parse the response into a FingerprintResult."""
-    shazam = shazam_cls()
+    shazam = get_shazam_client(shazam_cls)
     try:
         response = await shazam.recognize(audio_path)
     except Exception as exc:

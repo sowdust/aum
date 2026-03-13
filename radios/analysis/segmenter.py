@@ -74,6 +74,8 @@ import numpy as np
 
 logger = logging.getLogger("broadcast_analysis")
 
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "1"   # suppress INFO
+
 SAMPLE_RATE = 16000   # Hz -- PCM sample rate (do not change without re-testing)
 
 # -----------------------------------------------------------------------
@@ -87,13 +89,13 @@ SAMPLE_RATE = 16000   # Hz -- PCM sample rate (do not change without re-testing)
 # Pass 1 jitter threshold (seconds).
 # CNN frames shorter than this are treated as label flicker at boundaries
 # and absorbed before the main consolidation pass.  Range: 1–5 s.
-JITTER_THRESHOLD = 3.0
+JITTER_THRESHOLD = 2.0
 
 # Pass 2 minimum segment duration (seconds).
 # Segments shorter than this are absorbed into neighbours to produce
 # broadcast-scale blocks (full songs, long speech runs).
 # Overridable via Django setting SEGMENT_MIN_DURATION.  Range: 10–30 s.
-SEGMENT_MIN_DURATION_DEFAULT = 15.0
+SEGMENT_MIN_DURATION_DEFAULT = 10.0
 
 # -- Spectral flux -------------------------------------------------------
 
@@ -108,14 +110,14 @@ FLUX_WIN_SEC = 0.5
 # Moving-average smoothing applied to raw flux (seconds).
 # Suppresses individual beat onsets; keeps broad content transitions.
 # Range: 0.5–4.0 s.  Larger = smoother but less precise boundary location.
-FLUX_SMOOTH_SEC = 2.0
+FLUX_SMOOTH_SEC = 1.0
 
 # -- Boundary refinement -------------------------------------------------
 
 # Search radius around each consolidated boundary (seconds).
 # The refinement will not look further than this from the INA boundary.
 # Range: 2–20 s.  Smaller = stays closer to INA; larger = more freedom.
-REFINE_SEARCH_RADIUS = 15.0
+REFINE_SEARCH_RADIUS = 10.0
 
 # Gaussian proximity sigma (seconds).
 # Controls how strongly the refinement prefers peaks close to the boundary
@@ -269,7 +271,7 @@ def _compute_energy_db(
     end: float,
 ) -> float:
     """Compute RMS energy in dB for a time range within the PCM samples."""
-    if samples is None:
+    if samples is None or start <= end:
         return -100.0
 
     lo = int(start * SAMPLE_RATE)

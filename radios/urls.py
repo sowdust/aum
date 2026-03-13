@@ -7,6 +7,7 @@ urlpatterns = [
     path("radios/create/", views.radio_create, name="radio_create"),
     path('radios/<slug:slug>', views.radio_detail, name='radio_detail'),
     path('radios/<slug:slug>/recordings', views.radio_recordings, name='radio_recordings'),
+    path('radios/<slug:slug>/segments', views.radio_segments, name='radio_segments'),
     path('radios/<slug:slug>/broadcast/', views.broadcast_day_list, name='broadcast_day_list'),
     path('radios/<slug:slug>/broadcast/<str:date>/', views.broadcast_day, name='broadcast_day'),
     path('radios/<slug:slug>/recordings/<uuid:recording_id>/delete', views.recording_delete, name='recording_delete'),

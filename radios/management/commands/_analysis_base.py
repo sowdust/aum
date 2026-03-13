@@ -65,11 +65,17 @@ class AnalysisStageCommand(BaseCommand):
             action="store_true",
             help="Reset failed recordings for this stage back to pending before starting.",
         )
+        parser.add_argument(
+            "--retry-skipped",
+            action="store_true",
+            help="Reset skipped recordings for this stage back to pending before starting.",
+        )
 
     def handle(self, *args, **options):
         once = options["once"]
         limit = options["limit"]
         retry_failed = options["retry_failed"]
+        retry_skipped = options["retry_skipped"]
         poll_interval = getattr(settings, "ANALYZE_POLL_INTERVAL", 30)
 
         status_field = f"{self.stage_name}_status"
@@ -115,6 +121,17 @@ class AnalysisStageCommand(BaseCommand):
                 logger.info(
                     "Reset %d failed %s recording(s) to 'pending'.",
                     retry_count, self.stage_name,
+                )
+
+        # Retry skipped if requested
+        if retry_skipped:
+            skipped_count = Recording.objects.filter(
+                **{status_field: "skipped"}
+            ).update(**{status_field: "pending", error_field: ""})
+            if skipped_count:
+                logger.info(
+                    "Reset %d skipped %s recording(s) to 'pending'.",
+                    skipped_count, self.stage_name,
                 )
 
         logger.info(
@@ -208,16 +225,20 @@ class AnalysisStageCommand(BaseCommand):
         )
 
         try:
-            # Verify audio file exists
-            if not recording.file or not recording.file.name:
-                raise FileNotFoundError(
-                    f"Recording {recording.id} has no file attached."
-                )
-            file_path = recording.file.path
-            if not os.path.exists(file_path):
-                raise FileNotFoundError(
-                    f"Recording file not found on disk: {file_path}"
-                )
+            # Session recordings (real-time pipeline) have no file —
+            # segments carry their own files.  Pass None as file_path.
+            if recording.is_session:
+                file_path = None
+            else:
+                if not recording.file or not recording.file.name:
+                    raise FileNotFoundError(
+                        f"Recording {recording.id} has no file attached."
+                    )
+                file_path = recording.file.path
+                if not os.path.exists(file_path):
+                    raise FileNotFoundError(
+                        f"Recording file not found on disk: {file_path}"
+                    )
 
             self.process_one(recording, file_path, check)
 

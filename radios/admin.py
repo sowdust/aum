@@ -192,6 +192,19 @@ class TranscriptionSettingsAdmin(admin.ModelAdmin):
                 "OLLAMA_API_KEY environment variable."
             ),
         }),
+        ("RunPod (faster-whisper serverless)", {
+            "classes": ("collapse",),
+            "fields": ["runpod_endpoint_id", "runpod_model", "runpod_translate"],
+            "description": (
+                "Serverless faster-whisper on RunPod. "
+                "Set your endpoint ID (runpod.io/console/serverless) here and the "
+                "RUNPOD_API_KEY environment variable on the server. "
+                "Audio is sent as base64. Multiple segments are submitted in parallel "
+                "(up to 10 concurrent jobs). "
+                "Enable 'Translate' to get English translations for non-English audio "
+                "(costs one extra API call per non-English segment)."
+            ),
+        }),
         ("Transcription Correction (LLM)", {
             "classes": ("collapse",),
             "fields": [

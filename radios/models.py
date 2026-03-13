@@ -337,7 +337,7 @@ class Stream(models.Model):
         if not getattr(self, f"enable_{stage}"):
             return False
         upstream = self._STAGE_DEPENDENCIES[stage]
-        if upstream is not None:
+        if upstream is not None and False:
             return self.is_stage_active(upstream)
         return True
 
@@ -371,6 +371,20 @@ def recording_upload_path(instance, filename):
     )
 
 
+def segment_upload_path(instance, filename):
+    """
+    Storage path for a per-segment audio file (real-time pipeline).
+    segments/<stream-name-sanitized>/<YYYY>/<MM>/<DD>/<filename>.mp3
+    """
+    stream_folder = safe_stream_folder(instance.recording.stream.name)
+    date = instance.absolute_start_time or instance.recording.start_time
+    return (
+        f"segments/{stream_folder}/"
+        f"{date:%Y/%m/%d}/"
+        f"{filename}"
+    )
+
+
 STAGE_STATUS_CHOICES = [
     ("pending", "Pending"),
     ("running", "Running"),
@@ -385,7 +399,11 @@ class Recording(models.Model):
     stream = models.ForeignKey("Stream", on_delete=models.CASCADE, related_name="recordings")
     start_time = models.DateTimeField()
     end_time = models.DateTimeField()
-    file = models.FileField(upload_to=recording_upload_path)
+    file = models.FileField(upload_to=recording_upload_path, blank=True)
+    is_session = models.BooleanField(
+        default=False,
+        help_text="True for real-time streaming sessions (no file, segments have their own files).",
+    )
 
     # Per-stage status tracking
     segmentation_status = models.CharField(
@@ -620,6 +638,23 @@ class TranscriptionSegment(models.Model):
         Song, null=True, blank=True, on_delete=models.SET_NULL, related_name="occurrences",
         help_text="Deprecated: use SongOccurrence instead. Kept for data migration.",
     )
+    # --- Real-time streaming pipeline fields ---
+    file = models.FileField(
+        upload_to=segment_upload_path, blank=True,
+        help_text="Per-segment audio file (real-time pipeline). Empty for batch-pipeline segments.",
+    )
+    absolute_start_time = models.DateTimeField(
+        null=True, blank=True,
+        help_text="Wall-clock start time (real-time pipeline).",
+    )
+    absolute_end_time = models.DateTimeField(
+        null=True, blank=True,
+        help_text="Wall-clock end time (real-time pipeline).",
+    )
+    energy_db = models.FloatField(
+        default=0.0,
+        help_text="Average RMS energy of this segment in dB.",
+    )
 
     class Meta:
         ordering = ["recording", "start_offset"]
@@ -694,6 +729,7 @@ class TranscriptionSettings(models.Model):
         ("openai", "OpenAI Whisper API"),
         ("anthropic", "Anthropic (Claude)"),
         ("ollama", "Ollama (local or cloud)"),
+        ("runpod", "RunPod (faster-whisper serverless)"),
     ]
     MODEL_SIZE_CHOICES = [
         ("tiny", "Tiny — fastest, least accurate"),
@@ -759,6 +795,32 @@ class TranscriptionSettings(models.Model):
             "Base URL of the Ollama server for audio transcription. "
             "Use 'http://localhost:11434' for a local instance. "
             "Note: Ollama cloud (ollama.com) does not support audio transcription."
+        ),
+    )
+
+    # --- RunPod ---
+    runpod_endpoint_id = models.CharField(
+        max_length=100, blank=True, default="",
+        help_text=(
+            "RunPod serverless endpoint ID (find at runpod.io/console/serverless). "
+            "RUNPOD_API_KEY env var must also be set."
+        ),
+    )
+    runpod_model = models.CharField(
+        max_length=20,
+        choices=[
+            ("tiny", "Tiny"), ("base", "Base"), ("small", "Small"),
+            ("medium", "Medium"), ("large-v2", "Large v2"),
+            ("large-v3", "Large v3 (recommended)"), ("turbo", "Turbo"),
+        ],
+        default="large-v3",
+        help_text="Whisper model to use on the RunPod endpoint.",
+    )
+    runpod_translate = models.BooleanField(
+        default=True,
+        help_text=(
+            "Submit a second job to translate non-English audio to English. "
+            "Doubles API calls for non-English content."
         ),
     )
 

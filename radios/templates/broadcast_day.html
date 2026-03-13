@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+{% load static radios_extras %}
+
+{% block title %}{{ summary.date|date:"Y-m-d" }} — {{ radio.name }}{% endblock %}
+
+{% block content %}
+
+<div class="recordings-page">
+
+<!-- Header -->
+
+<div class="panel recordings-header">
+
+<div>
+<h1>{{ radio.name }} — {{ summary.date|date:"l, Y-m-d" }}</h1>
+</div>
+
+<div>
+<a href="{% url 'broadcast_day_list' radio.slug %}" class="button">
+← All Broadcast Days
+</a>
+</div>
+
+</div>
+
+
+<!-- DAY OVERVIEW -->
+
+<div class="panel">
+
+<div class="panel-title">Day Overview</div>
+
+<div class="summary-text">
+{{ summary.overview }}
+</div>
+
+{% if summary.tags.all %}
+<div class="tag-list">
+{% for tag in summary.tags.all %}
+<span class="tag">{{ tag.name }}</span>
+{% endfor %}
+</div>
+{% endif %}
+
+<div class="radio-meta" style="margin-top: 0.5rem;">
+{{ summary.recording_count }} recording{{ summary.recording_count|pluralize }} &middot;
+{{ shows|length }} show{{ shows|length|pluralize }}
+</div>
+
+</div>
+
+
+<!-- SHOWS -->
+
+<div class="recordings-list">
+
+{% for show in shows %}
+
+<details class="recording-block">
+
+<summary class="recording-summary">
+
+<div class="rec-time">
+{{ show.start_time|date:"H:i" }} → {{ show.end_time|date:"H:i" }}
+</div>
+
+<div class="rec-stream">
+{{ show.name }}
+</div>
+
+<div class="rec-stages">
+<span class="segment-type type-{{ show.show_type }}">
+{{ show.get_show_type_display }}
+</span>
+</div>
+
+</summary>
+
+
+<div class="recording-content">
+
+<!-- Show Summary -->
+
+{% if show.summary %}
+<div class="summary-block">
+<div class="section-label">Summary</div>
+<div class="summary-text">
+{{ show.summary }}
+</div>
+</div>
+{% endif %}
+
+
+<!-- Show Tags -->
+
+{% if show.tags.all %}
+<div class="tag-list">
+{% for tag in show.tags.all %}
+<span class="tag">{{ tag.name }}</span>
+{% endfor %}
+</div>
+{% endif %}
+
+
+<!-- Songs -->
+
+{% if show.songs.all %}
+
+<div class="segments">
+
+<div class="section-label">
+Songs ({{ show.songs.count }})
+</div>
+
+{% for occ in show.songs.all %}
+
+<div class="segment-block">
+
+<div class="segment-header">
+
+<span class="segment-type type-music">
+Song
+</span>
+
+<span class="segment-time">
+{{ occ.start_offset|format_seconds }} → {{ occ.end_offset|format_seconds }}
+</span>
+
+</div>
+
+<div class="song-entry">
+
+<div class="song-title">
+{{ occ.song.title }}
+{% if occ.song.artist %}
+— {{ occ.song.artist }}
+{% endif %}
+</div>
+
+{% if occ.song.album_name %}
+<div class="song-album">
+{{ occ.song.album_name }}
+{% if occ.song.release_year %}({{ occ.song.release_year }}){% endif %}
+</div>
+{% endif %}
+
+{% if occ.song.genres.all %}
+<div class="tag-list" style="margin-top: 0.25rem;">
+{% for genre in occ.song.genres.all %}
+<span class="tag">{{ genre.name }}</span>
+{% endfor %}
+</div>
+{% endif %}
+
+</div>
+
+{% if occ.segment.file %}
+<audio controls preload="none"
+       src="{{ occ.segment.file.url }}"
+       class="segment-player">
+</audio>
+{% elif occ.segment.recording.file %}
+<audio controls preload="none"
+       data-src="{{ occ.segment.recording.file.url }}"
+       data-start="{{ occ.start_offset }}"
+       data-end="{{ occ.end_offset }}"
+       class="segment-player">
+</audio>
+{% endif %}
+
+</div>
+
+{% endfor %}
+
+</div>
+
+{% endif %}
+
+</div>
+
+</details>
+
+{% empty %}
+
+<div class="empty-note center">
+No shows identified for this day.
+</div>
+
+{% endfor %}
+
+</div>
+
+</div>
+
+
+<script>
+
+document.addEventListener("DOMContentLoaded", function () {
+
+  const players = document.querySelectorAll("audio");
+
+  players.forEach(player => {
+
+    const start = parseFloat(player.dataset.start);
+    const end = parseFloat(player.dataset.end);
+
+    let stopping = false;
+
+    player.addEventListener("play", () => {
+      players.forEach(p => {
+        if (p !== player) {
+          p.pause();
+        }
+      });
+
+      if (!player.src) {
+        player.src = player.dataset.src;
+      }
+
+      if (player.currentTime < start || player.currentTime > end) {
+        player.currentTime = start;
+      }
+    });
+
+    player.addEventListener("timeupdate", () => {
+      if (!stopping && player.currentTime >= end) {
+        stopping = true;
+        player.pause();
+        player.currentTime = start;
+        stopping = false;
+      }
+    });
+
+  });
+
+});
+
+</script>
+
+{% endblock %}

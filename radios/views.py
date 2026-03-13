@@ -14,7 +14,7 @@ from django.utils.crypto import get_random_string
 from django.conf import settings
 from .models import EmailVerificationToken
 from .forms import UserRegisterForm
-from .models import Radio, Recording, Stream
+from .models import Radio, Recording, Stream, TranscriptionSegment
 import os
 
 
@@ -267,6 +267,62 @@ def radio_recordings(request, slug):
         "end": end,
     }
     return render(request, "radio_recordings.html", context)
+
+def radio_segments(request, slug):
+    """Browse segments for a radio, with filtering by time and type."""
+    from django.core.paginator import Paginator
+
+    radio = get_object_or_404(Radio, slug=slug)
+    streams = Stream.objects.filter(radio=radio)
+
+    qs = (
+        TranscriptionSegment.objects
+        .filter(recording__stream__in=streams)
+        .select_related("recording__stream")
+        .prefetch_related(
+            "song_occurrences__song__artist_ref",
+            "song_occurrences__song__genres",
+        )
+    )
+
+    start = request.GET.get("start")
+    end = request.GET.get("end")
+    seg_type = request.GET.get("type", "").strip()
+
+    if start:
+        qs = qs.filter(
+            Q(absolute_start_time__gte=start) |
+            Q(absolute_start_time__isnull=True, recording__start_time__gte=start)
+        )
+    if end:
+        qs = qs.filter(
+            Q(absolute_end_time__lte=end) |
+            Q(absolute_end_time__isnull=True, recording__start_time__lte=end)
+        )
+    if seg_type:
+        qs = qs.filter(segment_type=seg_type)
+
+    qs = qs.order_by("-recording__start_time", "start_offset")
+
+    paginator = Paginator(qs, 50)
+    page_number = request.GET.get("page")
+    page_obj = paginator.get_page(page_number)
+
+    # Build query string without 'page' for pagination links
+    params = request.GET.copy()
+    params.pop("page", None)
+    page_qs = params.urlencode()
+
+    context = {
+        "radio": radio,
+        "segments": page_obj,
+        "start": start,
+        "end": end,
+        "seg_type": seg_type,
+        "page_qs": page_qs,
+    }
+    return render(request, "radio_segments.html", context)
+
 
 def songs_played(request):
     """

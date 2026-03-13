@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block title %}Broadcast Days — {{ radio.name }}{% endblock %}
+
+{% block content %}
+
+<div class="recordings-page">
+
+<!-- Header -->
+
+<div class="panel recordings-header">
+
+<div>
+<h1>Broadcast Days — {{ radio.name }}</h1>
+</div>
+
+<div>
+<a href="{% url 'radio_detail' radio.slug %}" class="button">
+← Back to Radio
+</a>
+</div>
+
+</div>
+
+
+<!-- BROADCAST DAYS -->
+
+<div class="panel">
+
+<div class="panel-title">Available Days</div>
+
+{% if broadcast_days %}
+
+<table class="mono-table">
+
+<thead>
+<tr>
+<th>Date</th>
+<th>Recordings</th>
+<th>Shows</th>
+<th></th>
+</tr>
+</thead>
+
+<tbody>
+{% for day in broadcast_days %}
+<tr>
+<td>{{ day.date|date:"l, Y-m-d" }}</td>
+<td>{{ day.recording_count }}</td>
+<td>{{ day.shows.count }}</td>
+<td>
+<a href="{% url 'broadcast_day' radio.slug day.date|date:'Y-m-d' %}" class="button-small">
+View
+</a>
+</td>
+</tr>
+{% endfor %}
+</tbody>
+
+</table>
+
+{% else %}
+
+<div class="empty-note center">
+No broadcast day summaries available yet.
+</div>
+
+{% endif %}
+
+</div>
+
+</div>
+
+{% endblock %}
