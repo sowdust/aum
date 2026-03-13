@@ -48,7 +48,7 @@ from django.core.files import File
 from django.db import transaction
 from django.utils import timezone
 
-from radios.models import Recording, Stream, TranscriptionSegment
+from radios.models import Recording, Stream, TranscriptionSegment, TranscriptionSettings
 from radios.analysis.segmenter import (
     SAMPLE_RATE,
     _compute_energy_db,
@@ -65,6 +65,36 @@ from radios.analysis.recorder import (
 )
 
 logger = logging.getLogger("stream_processor")
+
+
+def _initial_segment_statuses(segment_type, stream):
+    """
+    Return initial pipeline status fields for a new TranscriptionSegment
+    based on its type and stream configuration.
+    """
+    fp_active = stream.is_stage_active("fingerprinting")
+    tx_active = stream.is_stage_active("transcription")
+    correction_enabled = TranscriptionSettings.get_settings().enable_correction
+
+    if segment_type == "music":
+        return {
+            "fingerprinting_status": "pending" if fp_active else "skipped",
+            "transcription_status": "skipped",
+            "correction_status": "skipped",
+        }
+    elif segment_type in ("speech", "speech_over_music"):
+        return {
+            "fingerprinting_status": "skipped",
+            "transcription_status": "pending" if tx_active else "skipped",
+            "correction_status": "pending" if (tx_active and correction_enabled) else "skipped",
+        }
+    else:
+        return {
+            "fingerprinting_status": "skipped",
+            "transcription_status": "skipped",
+            "correction_status": "skipped",
+        }
+
 
 # --- Configuration -----------------------------------------------------------
 
@@ -403,6 +433,10 @@ class StreamSegmentEncoder:
 
         # Save to DB
         try:
+            # Determine initial pipeline statuses for this segment
+            stream = self._recording.stream
+            seg_statuses = _initial_segment_statuses(segment.segment_type, stream)
+
             with transaction.atomic():
                 seg_obj = TranscriptionSegment(
                     recording=self._recording,
@@ -412,6 +446,7 @@ class StreamSegmentEncoder:
                     absolute_start_time=wall_start,
                     absolute_end_time=wall_end,
                     energy_db=round(energy, 1),
+                    **seg_statuses,
                 )
                 # Write MP3 data to a temp file, then save via Django
                 tmp_path = os.path.join(

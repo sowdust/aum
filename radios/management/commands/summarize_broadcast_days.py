@@ -28,7 +28,8 @@ from django.db.models import Count, Q
 from django.utils import timezone
 
 from radios.models import (
-    Radio, Recording, Stream, BroadcastDaySummary, ShowBlock, Tag, SongOccurrence,
+    Radio, Recording, Stream, TranscriptionSegment,
+    BroadcastDaySummary, ShowBlock, Tag, SongOccurrence,
 )
 from radios.analysis.broadcast_day_summarizer import (
     summarize_broadcast_day, link_songs_to_show,
@@ -208,12 +209,22 @@ class Command(BaseCommand):
                 if not target_date and rec_date >= today_local:
                     continue
 
-                # All recordings for this date must have transcription done/skipped
+                # All speech segments for this date must have transcription done/skipped
+                from django.db.models import Exists, OuterRef
                 day_recs = Recording.objects.filter(
                     stream__radio=radio,
                     start_time__date=rec_date,
                 )
-                if day_recs.exclude(transcription_status__in=["done", "skipped"]).exists():
+                has_incomplete = day_recs.filter(
+                    Exists(
+                        TranscriptionSegment.objects.filter(
+                            recording=OuterRef("pk"),
+                            segment_type__in=["speech", "speech_over_music"],
+                            transcription_status__in=["pending", "running"],
+                        )
+                    )
+                ).exists()
+                if has_incomplete:
                     continue
 
                 # Check existing BroadcastDaySummary status

@@ -414,7 +414,7 @@ def link_songs_to_show(show_result: ShowResult, radio, day: date,
         .select_related("song", "segment__recording")
     )
 
-    matched_ids = set()
+    matched_ids = []
     for song_str in show_result.songs:
         normalized = song_str.lower().strip()
         best_match = None

@@ -393,6 +393,12 @@ STAGE_STATUS_CHOICES = [
     ("skipped", "Skipped"),
 ]
 
+CORRECTION_STATUS_CHOICES = [
+    ("pending", "Pending"),
+    ("done", "Done"),
+    ("skipped", "Skipped"),
+]
+
 
 class Recording(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -405,19 +411,11 @@ class Recording(models.Model):
         help_text="True for real-time streaming sessions (no file, segments have their own files).",
     )
 
-    # Per-stage status tracking
+    # Per-stage status tracking (recording-level stages only)
     segmentation_status = models.CharField(
         max_length=10, choices=STAGE_STATUS_CHOICES, default="pending", db_index=True,
     )
     segmentation_error = models.TextField(blank=True, default="")
-    fingerprinting_status = models.CharField(
-        max_length=10, choices=STAGE_STATUS_CHOICES, default="pending", db_index=True,
-    )
-    fingerprinting_error = models.TextField(blank=True, default="")
-    transcription_status = models.CharField(
-        max_length=10, choices=STAGE_STATUS_CHOICES, default="pending", db_index=True,
-    )
-    transcription_error = models.TextField(blank=True, default="")
     summarization_status = models.CharField(
         max_length=10, choices=STAGE_STATUS_CHOICES, default="pending", db_index=True,
     )
@@ -425,6 +423,58 @@ class Recording(models.Model):
 
     analysis_started_at = models.DateTimeField(null=True, blank=True)
     analysis_completed_at = models.DateTimeField(null=True, blank=True)
+
+    # --- Computed properties for segment-level stages ---
+
+    @property
+    def fingerprinting_status(self):
+        """Computed from child music segments."""
+        music = self.segments.filter(segment_type="music")
+        if not music.exists():
+            return "skipped"
+        statuses = set(music.values_list("fingerprinting_status", flat=True))
+        if "failed" in statuses:
+            return "failed"
+        if "running" in statuses:
+            return "running"
+        if "pending" in statuses:
+            return "pending"
+        return "done"
+
+    @property
+    def fingerprinting_error(self):
+        """Aggregate fingerprinting errors from child music segments."""
+        errors = list(
+            self.segments.filter(segment_type="music")
+            .exclude(fingerprinting_error="")
+            .values_list("fingerprinting_error", flat=True)
+        )
+        return "\n---\n".join(errors)
+
+    @property
+    def transcription_status(self):
+        """Computed from child speech segments."""
+        speech = self.segments.filter(segment_type__in=["speech", "speech_over_music"])
+        if not speech.exists():
+            return "skipped"
+        statuses = set(speech.values_list("transcription_status", flat=True))
+        if "failed" in statuses:
+            return "failed"
+        if "running" in statuses:
+            return "running"
+        if "pending" in statuses:
+            return "pending"
+        return "done"
+
+    @property
+    def transcription_error(self):
+        """Aggregate transcription errors from child speech segments."""
+        errors = list(
+            self.segments.filter(segment_type__in=["speech", "speech_over_music"])
+            .exclude(transcription_error="")
+            .values_list("transcription_error", flat=True)
+        )
+        return "\n---\n".join(errors)
 
     @property
     def analysis_status(self):
@@ -638,6 +688,22 @@ class TranscriptionSegment(models.Model):
         Song, null=True, blank=True, on_delete=models.SET_NULL, related_name="occurrences",
         help_text="Deprecated: use SongOccurrence instead. Kept for data migration.",
     )
+    # --- Per-segment pipeline status fields ---
+    fingerprinting_status = models.CharField(
+        max_length=10, choices=STAGE_STATUS_CHOICES, default="skipped", db_index=True,
+        help_text="Fingerprinting status for music segments.",
+    )
+    fingerprinting_error = models.TextField(blank=True, default="")
+    transcription_status = models.CharField(
+        max_length=10, choices=STAGE_STATUS_CHOICES, default="skipped", db_index=True,
+        help_text="Transcription status for speech segments.",
+    )
+    transcription_error = models.TextField(blank=True, default="")
+    correction_status = models.CharField(
+        max_length=10, choices=CORRECTION_STATUS_CHOICES, default="skipped", db_index=True,
+        help_text="Correction status: pending (awaiting batch), done, or skipped.",
+    )
+
     # --- Real-time streaming pipeline fields ---
     file = models.FileField(
         upload_to=segment_upload_path, blank=True,
@@ -660,6 +726,9 @@ class TranscriptionSegment(models.Model):
         ordering = ["recording", "start_offset"]
         indexes = [
             models.Index(fields=["recording", "start_offset"]),
+            models.Index(fields=["fingerprinting_status"], name="idx_seg_fp_status"),
+            models.Index(fields=["transcription_status"], name="idx_seg_tx_status"),
+            models.Index(fields=["correction_status"], name="idx_seg_corr_status"),
         ]
 
     def __str__(self):
@@ -869,6 +938,14 @@ class TranscriptionSettings(models.Model):
         help_text=(
             "Prompt template for transcription correction. "
             "Placeholders: {segments}, {radio_name}, {radio_location}, {radio_language}."
+        ),
+    )
+    correction_batch_size = models.PositiveIntegerField(
+        default=10,
+        help_text=(
+            "Number of consecutive transcribed-but-uncorrected speech segments "
+            "to batch together for LLM correction. Correction runs when this many "
+            "consecutive segments from the same stream are ready."
         ),
     )
 

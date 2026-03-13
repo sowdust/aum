@@ -93,6 +93,13 @@
 
 <div class="rec-stages">
 
+{% include "components/stage_badge.html" with label="Seg" status=seg.segmentation_status %}
+{% include "components/stage_badge.html" with label="FP" status=seg.fingerprinting_status %}
+{% include "components/stage_badge.html" with label="Trans" status=seg.transcription_status %}
+{% include "components/stage_badge.html" with label="Sum" status=seg.summarization_status %}
+
+
+
 <span class="segment-type type-{{ seg.segment_type }}">
 {{ seg.get_segment_type_display }}
 </span>
@@ -247,6 +254,8 @@ Wall clock: {{ seg.absolute_start_time|date:"H:i:s" }} → {{ seg.absolute_end_t
 
 
 </div>
+
+
 
 </details>
 

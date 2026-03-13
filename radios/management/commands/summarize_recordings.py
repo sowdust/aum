@@ -1,8 +1,11 @@
 """
 Daemon that summarizes transcribed recordings into ChunkSummary + DailySummary.
 
-Upstream: transcription must be done/skipped.
+Upstream: all speech segments must be transcribed (done/skipped).
 Does NOT wait for fingerprinting — summarization only needs transcription output.
+
+Since transcription status is now on segments (not recordings), this command
+uses a custom upstream check via subquery instead of the simple column filter.
 
 Usage:
     python manage.py summarize_recordings            # run as daemon
@@ -12,9 +15,9 @@ Usage:
 
 import logging
 
-from django.db.models import Q
+from django.db.models import Q, Exists, OuterRef
 
-from radios.models import Recording, ChunkSummary, DailySummary, Tag
+from radios.models import Recording, TranscriptionSegment, ChunkSummary, DailySummary, Tag
 from radios.analysis.summarizer import summarize_texts
 from radios.management.commands._analysis_base import AnalysisStageCommand
 
@@ -25,7 +28,53 @@ class Command(AnalysisStageCommand):
     help = "Summarize transcribed recordings and generate daily summaries."
 
     stage_name = "summarization"
-    upstream_done_fields = ["transcription_status"]
+    # No upstream_done_fields — we use a custom queryset filter instead
+    upstream_done_fields = []
+
+    def _process_cycle(self, status_field, error_field, limit):
+        """
+        Custom cycle: find recordings where summarization is pending AND
+        all speech segments have transcription done/skipped (subquery check
+        since transcription status is now per-segment).
+        """
+        # Exclude recordings that still have pending/running speech transcriptions
+        has_incomplete_transcription = Exists(
+            TranscriptionSegment.objects.filter(
+                recording=OuterRef("pk"),
+                segment_type__in=["speech", "speech_over_music"],
+                transcription_status__in=["pending", "running"],
+            )
+        )
+
+        qs = (
+            Recording.objects
+            .filter(
+                summarization_status="pending",
+                segmentation_status__in=["done", "skipped"],
+            )
+            .annotate(_has_incomplete_tx=has_incomplete_transcription)
+            .filter(_has_incomplete_tx=False)
+            .select_related("stream", "stream__radio", "stream__audio_feed")
+            .order_by("start_time")
+        )
+        if limit:
+            qs = qs[:limit]
+
+        recordings = list(qs)
+        if recordings:
+            logger.info(
+                "[%s] Found %d recording(s) to process.",
+                self.stage_name, len(recordings),
+            )
+
+        processed = 0
+        for recording in recordings:
+            if not self._running:
+                break
+            self._process_one_recording(recording, status_field, error_field)
+            processed += 1
+
+        return processed
 
     def process_one(self, recording, file_path, check_fn):
         self._run_chunk_summary(recording, check_fn)

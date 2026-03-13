@@ -114,15 +114,32 @@ def admin_dashboard(request):
 
     ANALYSIS_STAGES = ["segmentation", "fingerprinting", "transcription", "summarization"]
 
+    # Recording-level stage counts (segmentation, summarization)
     stage_counts_list = []
-    for stage in ANALYSIS_STAGES:
+    for stage in ("segmentation", "summarization"):
         status_field = f"{stage}_status"
         rows = Recording.objects.values(status_field).annotate(n=Count("id"))
         counts = {row[status_field]: row["n"] for row in rows}
         stage_counts_list.append({"stage": stage, "counts": counts})
 
+    # Segment-level stage counts (fingerprinting, transcription)
+    for stage, seg_types in [
+        ("fingerprinting", ["music"]),
+        ("transcription", ["speech", "speech_over_music"]),
+    ]:
+        status_field = f"{stage}_status"
+        rows = (
+            TranscriptionSegment.objects
+            .filter(segment_type__in=seg_types)
+            .values(status_field)
+            .annotate(n=Count("id"))
+        )
+        counts = {row[status_field]: row["n"] for row in rows}
+        stage_counts_list.append({"stage": stage, "counts": counts})
+
+    # Running jobs: recording-level stages
     running_per_stage = {}
-    for stage in ANALYSIS_STAGES:
+    for stage in ("segmentation", "summarization"):
         status_field = f"{stage}_status"
         qs = (
             Recording.objects
@@ -132,12 +149,29 @@ def admin_dashboard(request):
         )
         running_per_stage[stage] = list(qs)
 
+    # Running jobs: segment-level stages (show parent recordings)
+    for stage, seg_types in [
+        ("fingerprinting", ["music"]),
+        ("transcription", ["speech", "speech_over_music"]),
+    ]:
+        status_field = f"{stage}_status"
+        running_rec_ids = (
+            TranscriptionSegment.objects
+            .filter(segment_type__in=seg_types, **{status_field: "running"})
+            .values_list("recording_id", flat=True)
+            .distinct()[:20]
+        )
+        running_per_stage[stage] = list(
+            Recording.objects
+            .filter(pk__in=running_rec_ids)
+            .select_related("stream__radio")
+        )
+
+    # Failures: recording-level
     recent_failed_recs = (
         Recording.objects
         .filter(
             Q(segmentation_status="failed") |
-            Q(fingerprinting_status="failed") |
-            Q(transcription_status="failed") |
             Q(summarization_status="failed")
         )
         .select_related("stream__radio")
@@ -145,7 +179,7 @@ def admin_dashboard(request):
     )
     failure_rows = []
     for rec in recent_failed_recs:
-        for stage in ANALYSIS_STAGES:
+        for stage in ("segmentation", "summarization"):
             if getattr(rec, f"{stage}_status") == "failed":
                 failure_rows.append({
                     "recording_id": rec.id,
@@ -155,6 +189,30 @@ def admin_dashboard(request):
                     "timestamp": rec.start_time,
                     "error_excerpt": (getattr(rec, f"{stage}_error", "") or "")[:300],
                 })
+
+    # Failures: segment-level
+    for stage, seg_types in [
+        ("fingerprinting", ["music"]),
+        ("transcription", ["speech", "speech_over_music"]),
+    ]:
+        status_field = f"{stage}_status"
+        error_field = f"{stage}_error"
+        failed_segs = (
+            TranscriptionSegment.objects
+            .filter(segment_type__in=seg_types, **{status_field: "failed"})
+            .select_related("recording__stream__radio")
+            .order_by("-recording__start_time")[:50]
+        )
+        for seg in failed_segs:
+            failure_rows.append({
+                "recording_id": seg.recording_id,
+                "stage": f"{stage} (seg {seg.id})",
+                "stream_name": seg.recording.stream.name,
+                "radio": seg.recording.stream.radio,
+                "timestamp": seg.recording.start_time,
+                "error_excerpt": (getattr(seg, error_field, "") or "")[:300],
+            })
+
     failure_rows.sort(key=lambda r: r["timestamp"] or "", reverse=True)
     failure_rows = failure_rows[:100]
 

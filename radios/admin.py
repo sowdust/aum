@@ -14,19 +14,22 @@ from .models import (
 @admin.register(Recording)
 class RecordingAdmin(admin.ModelAdmin):
     list_display = (
-        "__str__", "segmentation_status", "fingerprinting_status",
-        "transcription_status", "summarization_status",
+        "__str__", "segmentation_status",
+        "fingerprinting_status_display", "transcription_status_display",
+        "summarization_status",
         "analysis_started_at", "analysis_completed_at",
     )
     list_filter = (
-        "segmentation_status", "fingerprinting_status",
-        "transcription_status", "summarization_status",
+        "segmentation_status",
+        "summarization_status",
         "stream",
     )
     search_fields = ("id", "stream__name")
     readonly_fields = (
         "id", "analysis_started_at", "analysis_completed_at",
         "analysis_status_display", "analysis_error_display",
+        "fingerprinting_status_display", "fingerprinting_error_display",
+        "transcription_status_display", "transcription_error_display",
     )
     fieldsets = [
         (None, {"fields": ["id", "stream", "start_time", "end_time", "file"]}),
@@ -34,8 +37,8 @@ class RecordingAdmin(admin.ModelAdmin):
             "fields": [
                 "analysis_status_display",
                 "segmentation_status", "segmentation_error",
-                "fingerprinting_status", "fingerprinting_error",
-                "transcription_status", "transcription_error",
+                "fingerprinting_status_display", "fingerprinting_error_display",
+                "transcription_status_display", "transcription_error_display",
                 "summarization_status", "summarization_error",
                 "analysis_started_at", "analysis_completed_at",
             ],
@@ -51,16 +54,42 @@ class RecordingAdmin(admin.ModelAdmin):
     def analysis_error_display(self, obj):
         return obj.analysis_error or "(none)"
 
+    @admin.display(description="Fingerprinting")
+    def fingerprinting_status_display(self, obj):
+        return obj.fingerprinting_status
+
+    @admin.display(description="FP errors")
+    def fingerprinting_error_display(self, obj):
+        return obj.fingerprinting_error or "(none)"
+
+    @admin.display(description="Transcription")
+    def transcription_status_display(self, obj):
+        return obj.transcription_status
+
+    @admin.display(description="TX errors")
+    def transcription_error_display(self, obj):
+        return obj.transcription_error or "(none)"
+
     @admin.action(description="Retry failed stages (reset to pending)")
     def retry_failed_stages(self, request, queryset):
         count = 0
-        for stage in ("segmentation", "fingerprinting", "transcription", "summarization"):
+        # Recording-level stages
+        for stage in ("segmentation", "summarization"):
             field = f"{stage}_status"
             error_field = f"{stage}_error"
             count += queryset.filter(**{field: "failed"}).update(
                 **{field: "pending", error_field: ""}
             )
-        self.message_user(request, f"Reset {count} failed stage(s) to pending.")
+        # Segment-level stages: reset failed segments belonging to selected recordings
+        recording_ids = list(queryset.values_list("pk", flat=True))
+        for stage in ("fingerprinting", "transcription"):
+            field = f"{stage}_status"
+            error_field = f"{stage}_error"
+            count += TranscriptionSegment.objects.filter(
+                recording_id__in=recording_ids,
+                **{field: "failed"},
+            ).update(**{field: "pending", error_field: ""})
+        self.message_user(request, f"Reset {count} failed stage(s)/segment(s) to pending.")
 admin.site.register(RadioUser)
 
 
@@ -208,7 +237,7 @@ class TranscriptionSettingsAdmin(admin.ModelAdmin):
         ("Transcription Correction (LLM)", {
             "classes": ("collapse",),
             "fields": [
-                "enable_correction", "correction_backend",
+                "enable_correction", "correction_batch_size", "correction_backend",
                 "correction_local_ollama_model", "correction_local_ollama_url",
                 "correction_cloud_ollama_model", "correction_cloud_ollama_url",
                 "correction_openai_model", "correction_anthropic_model",
@@ -216,8 +245,8 @@ class TranscriptionSettingsAdmin(admin.ModelAdmin):
             ],
             "description": (
                 "Optional LLM post-processing to fix transcription errors and produce "
-                "English translation from corrected text. Runs after speech-to-text, "
-                "before summarization."
+                "English translation from corrected text. Correction batches N consecutive "
+                "transcribed segments from the same stream (can span recording boundaries)."
             ),
         }),
     ]
@@ -362,9 +391,13 @@ class SegmentSongOccurrenceInline(admin.TabularInline):
 class TranscriptionSegmentAdmin(admin.ModelAdmin):
     list_display = (
         "recording", "segment_type", "start_offset", "end_offset",
+        "fingerprinting_status", "transcription_status", "correction_status",
         "language", "has_transcription", "get_songs",
     )
-    list_filter = ("segment_type", "language")
+    list_filter = (
+        "segment_type", "language",
+        "fingerprinting_status", "transcription_status", "correction_status",
+    )
     search_fields = ("text", "text_english")
     readonly_fields = ("recording", "segment_type", "start_offset", "end_offset")
     inlines = [SegmentSongOccurrenceInline]
